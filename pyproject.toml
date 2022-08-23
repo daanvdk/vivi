@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "vivi"
+version = "0.1.0"
+description = ""
+authors = ["Daan van der Kallen <mail@daanvdk.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.2.5"
+pytest-flake8 = "^1.0.7"
+pytest-cov = "^3.0.0"
+flake8 = "^3.9.2"
+uvicorn = "^0.18.2"
+
+[tool.pytest.ini_options]
+addopts = "--cov --flake8"
+
+[tool.coverage.run]
+source = ['vivi']
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
