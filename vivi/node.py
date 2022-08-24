@@ -1,4 +1,5 @@
 import html
+from itertools import islice
 import json
 
 
@@ -9,45 +10,82 @@ class SafeText:
     def __init__(self, text):
         self.text = text
 
+    def __eq__(self, other):
+        if isinstance(other, SafeText):
+            return other.text == self.text
+        elif isinstance(other, str):
+            return html.escape(other, quote=False) == self.text
+        else:
+            return False
 
-def node_flatten(result):
-    if not isinstance(result, tuple):
-        yield result
-        return
 
-    tag, props, *children = result
-
-    flat_children = []
-    for child in children:
-        for flat_child in node_flatten(child):
-            if isinstance(flat_child, SafeText):
-                flat_child = flat_child.text
-            elif isinstance(flat_child, str):
-                flat_child = html.escape(flat_child)
-
-            if (
-                isinstance(flat_child, str) and
-                flat_children and
-                isinstance(flat_children[-1], str)
-            ):
-                flat_children[-1] += flat_child
-            else:
-                flat_children.append(flat_child)
-
-    if tag is None:
-        yield from flat_children
+def node_flatten(node):
+    if not isinstance(node, tuple) or node[0] is not None:
+        stack = [iter([node])]
     else:
-        yield (tag, props, *flat_children)
+        stack = [islice(node, 2, None)]
 
-
-def node_parts(nodes):
-    for i, node in enumerate(nodes):
-        if isinstance(node, str):
-            yield node
+    while stack:
+        try:
+            node = next(stack[-1])
+        except StopIteration:
+            stack.pop()
             continue
 
-        tag, props, *children = node
+        if isinstance(node, tuple) and node[0] is None:
+            stack.append(islice(node, 2, None))
+            continue
 
+        if isinstance(node, (str, SafeText)):
+            while stack:
+                try:
+                    next_node = next(stack[-1])
+                except StopIteration:
+                    stack.pop()
+                    continue
+
+                if isinstance(node, tuple) and node[0] is None:
+                    stack.append(islice(node, 2, None))
+                    continue
+
+                if isinstance(next_node, str):
+                    if isinstance(node, str):
+                        node += next_node
+                    else:
+                        node = SafeText(node.text + html.escape(next_node, quote=False))
+                elif isinstance(next_node, SafeText):
+                    if isinstance(node, str):
+                        node = SafeText(html.escape(node, quote=False) + next_node.text)
+                    else:
+                        node = SafeText(node.text + next_node.text)
+                else:
+                    yield node
+                    node = next_node
+                    break
+
+        yield node
+
+
+def node_get(node, path):
+    for index in path:
+        if node[0] is not None:
+            node = (None, {}, *node[2:])
+        node = next(islice(node_flatten(node), index, None))
+    return node
+
+
+def node_parts(node):
+    if isinstance(node, SafeText):
+        yield node.text
+        return
+
+    if isinstance(node, str):
+        yield html.escape(node, quote=False)
+        return
+
+    tag, props, *children = node
+
+    if tag is not None:
         yield '<'
         yield tag
         for key, value in props.items():
@@ -66,16 +104,24 @@ def node_parts(nodes):
             yield '"'
         yield '>'
 
-        yield from node_parts(children)
+    for child in children:
+        yield from node_parts(child)
 
+    if tag is not None:
         yield '</'
         yield tag
         yield '>'
 
 
-def node_diff(old_nodes, new_nodes, path=()):
-    for index, (old_node, new_node) in enumerate(zip(old_nodes, new_nodes)):
-        if (
+def node_diff(old_node, new_node, path=()):
+    old_nodes = enumerate(node_flatten(old_node))
+    new_nodes = enumerate(node_flatten(new_node))
+
+    for (index, old_node), (_, new_node) in zip(old_nodes, new_nodes):
+        if new_node is old_node:
+            pass
+
+        elif (
             isinstance(new_node, tuple) and
             isinstance(old_node, tuple) and
             new_node[0] == old_node[0]
@@ -96,7 +142,11 @@ def node_diff(old_nodes, new_nodes, path=()):
                         value = 'call(event)'
                     yield ('set', *path, index, key, value)
 
-            yield from node_diff(old_children, new_children, (*path, index))
+            yield from node_diff(
+                (None, {}, *old_children),
+                (None, {}, *new_children),
+                (*path, index),
+            )
 
         elif new_node == old_node:
             pass
@@ -104,8 +154,14 @@ def node_diff(old_nodes, new_nodes, path=()):
         else:
             yield ('replace', *path, index, new_node)
 
-    for _ in range(len(old_nodes) - len(new_nodes)):
-        yield ('remove', *path, len(new_nodes))
+    try:
+        old_index, _ = next(old_nodes)
+    except StopIteration:
+        pass
+    else:
+        yield ('remove', *path, old_index)
+        for _ in old_nodes:
+            yield ('remove', *path, old_index)
 
-    for index, node in enumerate(new_nodes[len(old_nodes):], len(old_nodes)):
+    for index, node in new_nodes:
         yield ('insert', *path, index, node)

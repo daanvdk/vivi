@@ -19,6 +19,7 @@ def use_ref(**kwargs):
 
 def use_state(initial_value):
     ref = use_ref()
+    _ctx.static = False
     ref.path = tuple(_ctx.path)
     ref.rerender_path = _ctx.rerender_path
 

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .element import HTMLElement, Component, h, fragment
 from .hooks import _ctx
-from .node import SafeText, node_flatten, node_parts, node_diff
+from .node import SafeText, node_get, node_parts, node_diff
 
 
 SCRIPT_BEFORE, SCRIPT_AFTER = Path(__file__).parent.joinpath('asgi.js').read_text().split('{{socket_url}}')
@@ -91,7 +91,7 @@ class Vivi:
             })
             await send({
                 'type': 'http.response.body',
-                'body': ''.join(node_parts(node_flatten(result))).encode(),
+                'body': ''.join(node_parts(result)).encode(),
             })
 
         elif scope['type'] == 'websocket':
@@ -132,9 +132,7 @@ class Vivi:
                         assert not path
                         queue.put_nowait(('pop_url', details))
                     else:
-                        target = (None, {}, *node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
-                        for index in path:
-                            target = target[index + 2]
+                        target = node_get(wrap(result, f'{scope["root_path"]}/{session_id}'), path)
                         handler = target[1][f'on{event_type}']
 
                         event = SimpleNamespace(type=event_type, **details)
@@ -162,7 +160,7 @@ class Vivi:
                             raise ValueError(f'unknown change: {change[0]}')
 
                     if paths:
-                        old_result = tuple(node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
+                        old_result = wrap(result, f'{scope["root_path"]}/{session_id}')
 
                         _ctx.static = False
                         _ctx.rerender_path = rerender_path
@@ -183,7 +181,7 @@ class Vivi:
                             del _ctx.url_paths
                             del _ctx.path
 
-                        new_result = tuple(node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
+                        new_result = wrap(result, f'{scope["root_path"]}/{session_id}')
 
                         actions.extend(node_diff(old_result, new_result))
 
