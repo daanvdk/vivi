@@ -14,13 +14,11 @@ from .node import SafeText, node_get, node_parts, node_diff
 SCRIPT_BEFORE, SCRIPT_AFTER = Path(__file__).parent.joinpath('asgi.js').read_text().split('{{socket_url}}')
 
 
-def wrap(result, socket_url=None):
+def wrap(result, script=None):
     if not isinstance(result, tuple) or result[0] != 'html':
         result = ('html', {}, ('body', {}, result))
 
-    if socket_url is not None:
-        script = ('script', {}, SafeText(SCRIPT_BEFORE + socket_url + SCRIPT_AFTER))
-
+    if script is not None:
         for i, child in enumerate(result[2:], 2):
             if isinstance(child, tuple) and child[0] == 'head':
                 result = (*result[:i], (*child, script), *result[i + 1:])
@@ -74,12 +72,23 @@ class Vivi:
                 del _ctx.path
 
             if static:
+                self._elem._unmount(state, result)
                 result = wrap(result)
             else:
                 session_id = str(uuid4())
-                self._sessions[session_id] = (state, result, queue, rerender_path, push_url, replace_url, url, url_paths)
-                loop.call_later(5, lambda: self._sessions.pop(session_id, None))
-                result = wrap(result, f'{scope["root_path"]}/{session_id}')
+                script = ('script', {}, SafeText(f'{SCRIPT_BEFORE}{scope["root_path"]}/{session_id}{SCRIPT_AFTER}'))
+                self._sessions[session_id] = (state, result, script, queue, rerender_path, push_url, replace_url, url, url_paths)
+
+                def session_timeout():
+                    try:
+                        state, result, *_ = self._sessions.pop(session_id)
+                    except KeyError:
+                        return
+                    self._elem._unmount(state, result)
+
+                loop.call_later(5, session_timeout)
+
+                result = wrap(result, script)
 
             await send({
                 'type': 'http.response.start',
@@ -99,7 +108,7 @@ class Vivi:
 
             session_id = scope['path'][1:]
             try:
-                state, result, queue, rerender_path, push_url, replace_url, url, url_paths = self._sessions.pop(session_id)
+                state, result, script, queue, rerender_path, push_url, replace_url, url, url_paths = self._sessions.pop(session_id)
             except KeyError:
                 await send({'type': 'websocket.close'})
                 return
@@ -132,7 +141,7 @@ class Vivi:
                         assert not path
                         queue.put_nowait(('pop_url', details))
                     else:
-                        target = node_get(wrap(result, f'{scope["root_path"]}/{session_id}'), path)
+                        target = node_get(wrap(result, script), path)
                         handler = target[1][f'on{event_type}']
 
                         event = SimpleNamespace(type=event_type, **details)
@@ -160,7 +169,7 @@ class Vivi:
                             raise ValueError(f'unknown change: {change[0]}')
 
                     if paths:
-                        old_result = wrap(result, f'{scope["root_path"]}/{session_id}')
+                        old_result = wrap(result, script)
 
                         _ctx.static = False
                         _ctx.rerender_path = rerender_path
@@ -181,7 +190,7 @@ class Vivi:
                             del _ctx.url_paths
                             del _ctx.path
 
-                        new_result = wrap(result, f'{scope["root_path"]}/{session_id}')
+                        new_result = wrap(result, script)
 
                         actions.extend(node_diff(old_result, new_result))
 

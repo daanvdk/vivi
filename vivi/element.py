@@ -149,7 +149,7 @@ class HTMLElement(Element):
     def _unmount(self, state, result):
         for (child, child_state), child_result in zip(state, result[2:]):
             if isinstance(child, Element):
-                child._unmount(state, result)
+                child._unmount(child_state, child_result)
 
     def _extract(self, state, result, key):
         child, child_state = state[key]
@@ -251,8 +251,8 @@ class Component(Element):
         if isinstance(elem, Element):
             elem._unmount(elem_state, result)
         for ref in refs:
-            if hasattr(ref, '__vivi_cleanup'):
-                ref.__vivi_cleanup()
+            if hasattr(ref, '_vivi_cleanup'):
+                ref._vivi_cleanup()
 
     def _extract(self, state, result, key):
         assert key == 'render'

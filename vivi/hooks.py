@@ -64,15 +64,15 @@ def use_effect(*key):
 
             ref.key = key
 
-            if hasattr(ref, '__vivi_cleanup'):
-                ref.__vivi_cleanup()
-                del ref.__vivi_cleanup
+            if hasattr(ref, '_vivi_cleanup'):
+                ref._vivi_cleanup()
+                del ref._vivi_cleanup
 
             @loop.call_soon
             def wrapped_callback():
                 cleanup = callback()
                 if callable(cleanup):
-                    ref.__vivi_cleanup = lambda: loop.call_soon(cleanup)
+                    ref._vivi_cleanup = lambda: loop.call_soon(cleanup)
 
     return decorator
 
@@ -80,8 +80,8 @@ def use_effect(*key):
 def use_url():
     ref = use_ref()
 
-    if hasattr(ref, '__vivi_cleanup'):
-        ref.__vivi_cleanup()
+    if hasattr(ref, '_vivi_cleanup'):
+        ref._vivi_cleanup()
 
     path = tuple(_ctx.path)
     url_paths = _ctx.url_paths
@@ -92,7 +92,7 @@ def use_url():
         if url_paths[path] == 0:
             del url_paths[path]
 
-    ref.__vivi_cleanup = cleanup
+    ref._vivi_cleanup = cleanup
 
     return _ctx.url
 
