@@ -37,6 +37,14 @@ function createNode(data) {
 function call(event) {
     event.preventDefault();
     const details = {};
+    switch (event.type) {
+        case 'input': {
+            details.value = event.target.value;
+        }; break;
+        case 'change': {
+            details.value = event.target.value;
+        }; break;
+    }
     socket.send(JSON.stringify([event.type, ...getPath(event.currentTarget), details]));
 }
 
