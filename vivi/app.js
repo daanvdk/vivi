@@ -40,7 +40,7 @@ function call(event) {
     socket.send(JSON.stringify([event.type, ...getPath(event.currentTarget), details]));
 }
 
-const socket = new WebSocket(`${{'http:': 'ws://', 'https:': 'wss://'}[window.location.protocol]}${window.location.host}{{socket_url}}`);
+const socket = new WebSocket({{socket_url}});
 
 socket.addEventListener('message', function (event) {
     for (const [action, ...path] of JSON.parse(event.data)) {

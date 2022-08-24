@@ -6,6 +6,7 @@ authors = ["Daan van der Kallen <mail@daanvdk.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+starlette = "^0.20.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"

@@ -1,4 +1,21 @@
 [[package]]
+name = "anyio"
+version = "3.6.1"
+description = "High level compatibility layer for multiple asynchronous event loop implementations"
+category = "main"
+optional = false
+python-versions = ">=3.6.2"
+
+[package.dependencies]
+idna = ">=2.8"
+sniffio = ">=1.1"
+
+[package.extras]
+doc = ["packaging", "sphinx-rtd-theme", "sphinx-autodoc-typehints (>=1.2.0)"]
+test = ["coverage[toml] (>=4.5)", "hypothesis (>=4.0)", "pytest (>=7.0)", "pytest-mock (>=3.6.1)", "trustme", "contextlib2", "uvloop (<0.15)", "mock (>=4)", "uvloop (>=0.15)"]
+trio = ["trio (>=0.16)"]
+
+[[package]]
 name = "atomicwrites"
 version = "1.4.1"
 description = "Atomic file writes."
@@ -73,6 +90,14 @@ description = "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1"
 category = "dev"
 optional = false
 python-versions = ">=3.6"
+
+[[package]]
+name = "idna"
+version = "3.3"
+description = "Internationalized Domain Names in Applications (IDNA)"
+category = "main"
+optional = false
+python-versions = ">=3.5"
 
 [[package]]
 name = "iniconfig"
@@ -197,6 +222,29 @@ flake8 = ">=3.5"
 pytest = ">=3.5"
 
 [[package]]
+name = "sniffio"
+version = "1.2.0"
+description = "Sniff out which async library your code is running under"
+category = "main"
+optional = false
+python-versions = ">=3.5"
+
+[[package]]
+name = "starlette"
+version = "0.20.4"
+description = "The little ASGI library that shines."
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[package.dependencies]
+anyio = ">=3.4.0,<5"
+typing-extensions = {version = ">=3.10.0", markers = "python_version < \"3.10\""}
+
+[package.extras]
+full = ["itsdangerous", "jinja2", "python-multipart", "pyyaml", "requests"]
+
+[[package]]
 name = "toml"
 version = "0.10.2"
 description = "Python Library for Tom's Obvious, Minimal Language"
@@ -209,6 +257,14 @@ name = "tomli"
 version = "2.0.1"
 description = "A lil' TOML parser"
 category = "dev"
+optional = false
+python-versions = ">=3.7"
+
+[[package]]
+name = "typing-extensions"
+version = "4.3.0"
+description = "Backported and Experimental Type Hints for Python 3.7+"
+category = "main"
 optional = false
 python-versions = ">=3.7"
 
@@ -230,9 +286,10 @@ standard = ["websockets (>=10.0)", "httptools (>=0.4.0)", "watchfiles (>=0.13)",
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "630d37f0251e4e1b741b6b9623898f7bae7f24571cb15abbbecf964eb1bae834"
+content-hash = "72dcf58ab7982d5ea44f801911974a39fff1cdf6a55ccd5f691e983be595d580"
 
 [metadata.files]
+anyio = []
 atomicwrites = []
 attrs = []
 click = []
@@ -243,6 +300,7 @@ flake8 = [
     {file = "flake8-3.9.2.tar.gz", hash = "sha256:07528381786f2a6237b061f6e96610a4167b226cb926e2aa2b6b1d78057c576b"},
 ]
 h11 = []
+idna = []
 iniconfig = [
     {file = "iniconfig-1.1.1-py2.py3-none-any.whl", hash = "sha256:011e24c64b7f47f6ebd835bb12a743f2fbe9a26d4cecaa7f53bc4f35ee9da8b3"},
     {file = "iniconfig-1.1.1.tar.gz", hash = "sha256:bc3af051d7d14b2ee5ef9969666def0cd1a000e121eaea580d4a313df4b37f32"},
@@ -284,6 +342,8 @@ pytest-flake8 = [
     {file = "pytest-flake8-1.1.0.tar.gz", hash = "sha256:358d449ca06b80dbadcb43506cd3e38685d273b4968ac825da871bd4cc436202"},
     {file = "pytest_flake8-1.1.0-py2.py3-none-any.whl", hash = "sha256:f1b19dad0b9f0aa651d391c9527ebc20ac1a0f847aa78581094c747462bfa182"},
 ]
+sniffio = []
+starlette = []
 toml = [
     {file = "toml-0.10.2-py2.py3-none-any.whl", hash = "sha256:806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b"},
     {file = "toml-0.10.2.tar.gz", hash = "sha256:b3bda1d108d5dd99f4a20d24d9c348e91c4db7ab1b749200bded2f839ccbe68f"},
@@ -292,4 +352,5 @@ tomli = [
     {file = "tomli-2.0.1-py3-none-any.whl", hash = "sha256:939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc"},
     {file = "tomli-2.0.1.tar.gz", hash = "sha256:de526c12914f0c550d15924c62d72abc48d6fe7364aa87328337a31007fe8a4f"},
 ]
+typing-extensions = []
 uvicorn = []

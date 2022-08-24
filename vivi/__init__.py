@@ -1,4 +1,4 @@
-from .asgi import Vivi
+from .app import Vivi
 
 
 __all__ = ['Vivi']
