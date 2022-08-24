@@ -34,6 +34,8 @@ function createNode(data) {
     return node;
 }
 
+const socket = new WebSocket({{socket_url}});
+
 function call(event) {
     event.preventDefault();
     const details = {};
@@ -48,7 +50,9 @@ function call(event) {
     socket.send(JSON.stringify([event.type, ...getPath(event.currentTarget), details]));
 }
 
-const socket = new WebSocket({{socket_url}});
+addEventListener('popstate', (event) => {
+    socket.send(JSON.stringify(['pop_url', event.state.url]));
+});
 
 socket.addEventListener('message', function (event) {
     for (const [action, ...path] of JSON.parse(event.data)) {
@@ -95,8 +99,4 @@ socket.addEventListener('message', function (event) {
             }; break;
         }
     }
-});
-
-addEventListener('popstate', (event) => {
-    socket.send(JSON.stringify(['pop_url', event.state.url]));
 });

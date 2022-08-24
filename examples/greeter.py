@@ -13,7 +13,7 @@ def greeter():
 
     return fragment(
         h.input(value=name, oninput=oninput),
-        h.div(f'Hello, {name}!'),
+        h.div('Hello, ', name, '!'),
     )
 
 
