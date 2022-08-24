@@ -1,10 +1,4 @@
-from vivi.elements import component
-from vivi.serve import serve
+from .asgi import Vivi
 
 
-@component
-def todos():
-    return 'Hello, World!'
-
-
-app = serve(todos)
+__all__ = ['Vivi']
