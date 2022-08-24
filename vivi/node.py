@@ -138,7 +138,12 @@ def node_diff(old_node, new_node, path=()):
                     if callable(value) else
                     old_props[key] != value
                 ):
-                    if callable(value):
+                    if value is False:
+                        yield ('unset', *path, index, key)
+                        continue
+                    if value is True:
+                        value = ''
+                    elif callable(value):
                         value = 'call(event)'
                     yield ('set', *path, index, key, value)
 

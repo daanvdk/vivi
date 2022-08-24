@@ -105,3 +105,23 @@ def use_push_url():
 def use_replace_url():
     _ctx.static = False
     return _ctx.replace_url
+
+
+def use_future(fut, sentinel=None):
+    ref = use_ref(fut=None)
+
+    ref.path = tuple(_ctx.path)
+    ref.rerender_path = _ctx.rerender_path
+
+    if fut is not ref.fut:
+        ref.fut = fut
+        if fut is not None and not fut.done():
+            @fut.add_done_callback
+            def on_fut_done(fut):
+                if fut is ref.fut:
+                    ref.rerender_path(ref.path)
+
+    if fut is not None and fut.done():
+        return fut.result()
+    else:
+        return sentinel
