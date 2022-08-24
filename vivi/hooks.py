@@ -17,16 +17,10 @@ def use_ref(**kwargs):
     return ref
 
 
-def use_rerender():
-    _ctx.static = False
-    queue = _ctx.queue
-    path = tuple(_ctx.path)
-    return lambda: queue.put_nowait(('path', path))
-
-
 def use_state(initial_value):
     ref = use_ref()
-    ref.rerender = use_rerender()
+    ref.path = tuple(_ctx.path)
+    ref.rerender_path = _ctx.rerender_path
 
     if not hasattr(ref, 'value'):
         if callable(initial_value):
@@ -37,7 +31,7 @@ def use_state(initial_value):
                 value = value(ref.value)
 
             ref.value = value
-            ref.rerender()
+            ref.rerender_path(ref.path)
 
         ref.value = initial_value
         ref.set_value = set_value
@@ -80,3 +74,33 @@ def use_effect(*key):
                     ref.__vivi_cleanup = lambda: loop.call_soon(cleanup)
 
     return decorator
+
+
+def use_url():
+    ref = use_ref()
+
+    if hasattr(ref, '__vivi_cleanup'):
+        ref.__vivi_cleanup()
+
+    path = tuple(_ctx.path)
+    url_paths = _ctx.url_paths
+    url_paths[path] += 1
+
+    def cleanup():
+        url_paths[path] -= 1
+        if url_paths[path] == 0:
+            del url_paths[path]
+
+    ref.__vivi_cleanup = cleanup
+
+    return _ctx.url
+
+
+def use_push_url():
+    _ctx.static = False
+    return _ctx.push_url
+
+
+def use_replace_url():
+    _ctx.static = False
+    return _ctx.replace_url

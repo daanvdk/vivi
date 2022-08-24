@@ -1,4 +1,5 @@
 import html
+import json
 
 
 class SafeText:
@@ -86,7 +87,13 @@ def node_diff(old_nodes, new_nodes, path=()):
                 yield ('unset', *path, index, key)
 
             for key, value in new_props.items():
-                if key not in old_props or old_props[key] != value:
+                if key not in old_props or (
+                    not callable(old_props[key])
+                    if callable(value) else
+                    old_props[key] != value
+                ):
+                    if callable(value):
+                        value = 'call(event)'
                     yield ('set', *path, index, key, value)
 
             yield from node_diff(old_children, new_children, (*path, index))

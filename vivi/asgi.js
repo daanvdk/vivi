@@ -41,6 +41,7 @@ function call(event) {
 }
 
 const socket = new WebSocket(`${{'http:': 'ws://', 'https:': 'wss://'}[window.location.protocol]}${window.location.host}{{socket_url}}`);
+
 socket.addEventListener('message', function (event) {
     for (const [action, ...path] of JSON.parse(event.data)) {
         switch (action) {
@@ -76,6 +77,18 @@ socket.addEventListener('message', function (event) {
                 const node = getNode(path);
                 node.removeAttribute(key);
             }; break;
+            case 'push_url': {
+                const [url] = path;
+                history.pushState({ url }, '', url);
+            }; break;
+            case 'replace_url': {
+                const [url] = path;
+                history.replaceState({ url }, '', url);
+            }; break;
         }
     }
+});
+
+addEventListener('popstate', (event) => {
+    socket.send(JSON.stringify(['pop_url', event.state.url]));
 });

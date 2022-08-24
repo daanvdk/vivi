@@ -1,4 +1,5 @@
 import asyncio
+from collections import Counter
 from itertools import chain
 import json
 from pathlib import Path
@@ -41,24 +42,42 @@ class Vivi:
 
         if scope['type'] == 'http':
             queue = asyncio.Queue()
+            url = scope['path']
+            url_paths = Counter()
+
+            def rerender_path(path):
+                queue.put_nowait(('path', path))
+
+            def push_url(url):
+                queue.put_nowait(('push_url', url))
+
+            def replace_url(url):
+                queue.put_nowait(('replace_url', url))
 
             _ctx.static = True
-            _ctx.queue = queue
+            _ctx.rerender_path = rerender_path
+            _ctx.push_url = push_url
+            _ctx.replace_url = replace_url
+            _ctx.url = url
+            _ctx.url_paths = url_paths
             _ctx.path = []
             try:
                 state, result = self._elem._render(*self._elem._init())
-
                 static = _ctx.static
             finally:
                 del _ctx.static
-                del _ctx.queue
+                del _ctx.rerender_path
+                del _ctx.push_url
+                del _ctx.replace_url
+                del _ctx.url
+                del _ctx.url_paths
                 del _ctx.path
 
             if static:
                 result = wrap(result)
             else:
                 session_id = str(uuid4())
-                self._sessions[session_id] = (state, result, queue)
+                self._sessions[session_id] = (state, result, queue, rerender_path, push_url, replace_url, url, url_paths)
                 loop.call_later(5, lambda: self._sessions.pop(session_id, None))
                 result = wrap(result, f'{scope["root_path"]}/{session_id}')
 
@@ -80,7 +99,7 @@ class Vivi:
 
             session_id = scope['path'][1:]
             try:
-                state, result, queue = self._sessions.pop(session_id)
+                state, result, queue, rerender_path, push_url, replace_url, url, url_paths = self._sessions.pop(session_id)
             except KeyError:
                 await send({'type': 'websocket.close'})
                 return
@@ -109,13 +128,17 @@ class Vivi:
                         message['text']
                     )
 
-                    target = (None, {}, *node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
-                    for index in path:
-                        target = target[index + 2]
-                    handler = target[1][f'on{event_type}']
+                    if event_type == 'pop_url':
+                        assert not path
+                        queue.put_nowait(('pop_url', details))
+                    else:
+                        target = (None, {}, *node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
+                        for index in path:
+                            target = target[index + 2]
+                        handler = target[1][f'on{event_type}']
 
-                    event = SimpleNamespace(type=event_type, **details)
-                    loop.call_soon(handler, event)
+                        event = SimpleNamespace(type=event_type, **details)
+                        loop.call_soon(handler, event)
 
                     receive_fut = loop.create_task(receive())
 
@@ -124,11 +147,17 @@ class Vivi:
                     while not queue.empty():
                         changes.append(queue.get_nowait())
 
+                    actions = []
                     paths = set()
                     for change in changes:
                         if change[0] == 'path':
                             _, path = change
                             paths.add(path)
+                        elif change[0] in ('pop_url', 'push_url', 'replace_url'):
+                            change_type, url = change
+                            paths.update(url_paths)
+                            if change_type != 'pop_url':
+                                actions.append(change)
                         else:
                             raise ValueError(f'unknown change: {change[0]}')
 
@@ -136,24 +165,33 @@ class Vivi:
                         old_result = tuple(node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
 
                         _ctx.static = False
-                        _ctx.queue = queue
+                        _ctx.rerender_path = rerender_path
+                        _ctx.push_url = push_url
+                        _ctx.replace_url = replace_url
+                        _ctx.url = url
+                        _ctx.url_paths = url_paths
                         try:
                             for path in sorted(paths, reverse=True):
                                 _ctx.path = list(path)
                                 state, result = self._elem._rerender(path, state, result)
                         finally:
                             del _ctx.static
-                            del _ctx.queue
+                            del _ctx.rerender_path
+                            del _ctx.push_url
+                            del _ctx.replace_url
+                            del _ctx.url
+                            del _ctx.url_paths
                             del _ctx.path
 
                         new_result = tuple(node_flatten(wrap(result, f'{scope["root_path"]}/{session_id}')))
 
-                        diff = list(node_diff(old_result, new_result))
-                        if diff:
-                            await send({
-                                'type': 'websocket.send',
-                                'text': json.dumps(diff, separators=(',', ':')),
-                            })
+                        actions.extend(node_diff(old_result, new_result))
+
+                    if actions:
+                        await send({
+                            'type': 'websocket.send',
+                            'text': json.dumps(actions, separators=(',', ':')),
+                        })
 
                     queue_fut = loop.create_task(queue.get())
 
