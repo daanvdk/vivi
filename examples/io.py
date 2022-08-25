@@ -2,7 +2,7 @@ import asyncio
 import json
 
 from vivi import Vivi
-from vivi.element import component, h, fragment
+from vivi.elements import component, h, fragment
 from vivi.hooks import use_state, use_future, use_callback
 
 
@@ -36,4 +36,4 @@ def io():
     )
 
 
-app = Vivi(io)
+app = Vivi(io, debug=True)

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from .hooks import _ctx, use_url, use_push_url, use_callback
+from .hooks import _ctx
 
 
 INCOMPATIBLE = 0
@@ -279,18 +279,3 @@ def component(func):
 
 
 fragment = HTMLElement(None, {}, ())
-
-
-@component
-def link(to, children, **props):
-    url = use_url()
-    push_url = use_push_url()
-
-    current = url == to
-
-    @use_callback(push_url, to, current)
-    def onclick(e):
-        if not current:
-            push_url(to)
-
-    return h.a(href=to, onclick=onclick, **props)(*children)

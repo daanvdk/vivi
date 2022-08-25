@@ -1,5 +1,5 @@
 from vivi import Vivi
-from vivi.element import component, fragment, h
+from vivi.elements import component, fragment, h
 from vivi.hooks import use_state, use_callback
 
 
@@ -17,4 +17,4 @@ def greeter():
     )
 
 
-app = Vivi(greeter)
+app = Vivi(greeter, debug=True)

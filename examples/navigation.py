@@ -1,28 +1,23 @@
 from vivi import Vivi
-from vivi.element import component, h, fragment, link
-from vivi.hooks import use_url
+from vivi.elements import component, h, fragment
+from vivi.urls import link, router
 
 
 @component
 def navigation():
-    url = use_url()
-
     return fragment(
         h.ul(
             h.li(link(to='/foo')('foo')),
             h.li(link(to='/bar')('bar')),
             h.li(link(to='/baz')('baz')),
         ),
-        h.p(
-            'This is the foo page.'
-            if url == '/foo' else
-            'This is the bar page.'
-            if url == '/bar' else
-            'This is the baz page.'
-            if url == '/baz' else
-            f'Page not found: {url}',
+        router(
+            ('/foo', h.p('This is the foo page')),
+            ('/bar', h.p('This is the bar page')),
+            ('/baz', h.p('This is the baz page')),
+            not_found=h.p('Page not found.'),
         ),
     )
 
 
-app = Vivi(navigation)
+app = Vivi(navigation, debug=True)

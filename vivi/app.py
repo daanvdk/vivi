@@ -12,7 +12,6 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.websockets import WebSocketDisconnect
 
-from .element import HTMLElement, Component, h, fragment
 from .hooks import _ctx
 from .node import SafeText, node_get, node_parts, node_diff
 

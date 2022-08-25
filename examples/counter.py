@@ -1,5 +1,5 @@
 from vivi import Vivi
-from vivi.element import component, h, fragment
+from vivi.elements import component, h, fragment
 from vivi.hooks import use_state, use_callback
 
 
@@ -27,4 +27,4 @@ app = Vivi(fragment(
     counter,
     h.h1('Counter 2'),
     counter(initial_count=10),
-))
+), debug=True)
