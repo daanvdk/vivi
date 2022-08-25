@@ -36,8 +36,17 @@ function createNode(data) {
 
 const socket = new WebSocket({{socket_url}});
 
-function call(event) {
-    event.preventDefault();
+function call(event, preventDefault, stopPropagation, stopImmediatePropagation) {
+    if (preventDefault) {
+        event.preventDefault();
+    }
+    if (stopPropagation) {
+        event.stopPropagation();
+    }
+    if (stopImmediatePropagation) {
+        event.stopImmediatePropagation();
+    }
+
     const details = {};
     switch (event.type) {
         case 'input': {

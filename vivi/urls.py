@@ -6,6 +6,7 @@ from starlette.routing import compile_path
 
 from .elements import component, h, fragment, Component
 from .hooks import use_url, use_push_url, use_callback, use_ref
+from .events import prevent_default
 
 
 @component
@@ -16,6 +17,7 @@ def link(to, children, **props):
     current = url == to
 
     @use_callback(push_url, to, current)
+    @prevent_default
     def onclick(e):
         if not current:
             push_url(to)

@@ -2,6 +2,8 @@ import html
 from itertools import islice
 import json
 
+from .events import CallbackWrapper
+
 
 class SafeText:
 
@@ -74,6 +76,28 @@ def node_get(node, path):
     return node
 
 
+def clean_value(value):
+    if not callable(value):
+        return value
+
+    args = {
+        'prevent_default': False,
+        'stop_propagation': False,
+        'stop_immediate_propagation': False,
+    }
+
+    while isinstance(value, CallbackWrapper):
+        args[value.key] = value.value
+        value = value.callback
+
+    parts = ['call(event']
+    for arg in ['prevent_default', 'stop_propagation', 'stop_immediate_propagation']:
+        parts.append(', ')
+        parts.append(json.dumps(args[arg]))
+    parts.append(')')
+    return ''.join(parts)
+
+
 def node_parts(node):
     if isinstance(node, SafeText):
         yield node.text
@@ -89,6 +113,7 @@ def node_parts(node):
         yield '<'
         yield tag
         for key, value in props.items():
+            value = clean_value(value)
             if value is False:
                 continue
             yield ' '
@@ -96,9 +121,7 @@ def node_parts(node):
             if value is True:
                 continue
             yield '="'
-            if callable(value):
-                value = 'call(event)'
-            elif not isinstance(value, str):
+            if not isinstance(value, str):
                 value = json.dumps(value)
             yield html.escape(value)
             yield '"'
@@ -133,18 +156,13 @@ def node_diff(old_node, new_node, path=()):
                 yield ('unset', *path, index, key)
 
             for key, value in new_props.items():
-                if key not in old_props or (
-                    not callable(old_props[key])
-                    if callable(value) else
-                    old_props[key] != value
-                ):
+                value = clean_value(value)
+                if key not in old_props or clean_value(old_props[key]) != value:
                     if value is False:
                         yield ('unset', *path, index, key)
                         continue
                     if value is True:
                         value = ''
-                    elif callable(value):
-                        value = 'call(event)'
                     yield ('set', *path, index, key, value)
 
             yield from node_diff(
