@@ -1,5 +1,5 @@
 import html
-from itertools import islice
+from itertools import islice, zip_longest
 import json
 
 from .events import CallbackWrapper
@@ -19,6 +19,48 @@ class SafeText:
             return html.escape(other, quote=False) == self.text
         else:
             return False
+
+
+def clean_value(value):
+    if not callable(value):
+        return value
+
+    args = {
+        'prevent_default': False,
+        'stop_propagation': False,
+        'stop_immediate_propagation': False,
+    }
+
+    while isinstance(value, CallbackWrapper):
+        args[value.key] = value.value
+        value = value.callback
+
+    parts = ['call(event']
+    for arg in ['prevent_default', 'stop_propagation', 'stop_immediate_propagation']:
+        parts.append(', ')
+        parts.append(json.dumps(args[arg]))
+    parts.append(')')
+    return ''.join(parts)
+
+
+def clean_node(node):
+    if not isinstance(node, tuple):
+        return node
+
+    tag, props, *children = node
+
+    cleaned_props = {}
+    for key, value in props.items():
+        value = clean_value(value)
+        if value is False:
+            continue
+        if value is True:
+            value = ''
+        if not isinstance(value, str):
+            value = json.dumps(value)
+        cleaned_props[key] = value
+
+    return (tag, cleaned_props, *map(clean_node, children))
 
 
 def node_flatten(node):
@@ -46,8 +88,8 @@ def node_flatten(node):
                     stack.pop()
                     continue
 
-                if isinstance(node, tuple) and node[0] is None:
-                    stack.append(islice(node, 2, None))
+                if isinstance(next_node, tuple) and next_node[0] is None:
+                    stack.append(islice(next_node, 2, None))
                     continue
 
                 if isinstance(next_node, str):
@@ -65,6 +107,7 @@ def node_flatten(node):
                     node = next_node
                     break
 
+        assert node is not None
         yield node
 
 
@@ -74,28 +117,6 @@ def node_get(node, path):
             node = (None, {}, *node[2:])
         node = next(islice(node_flatten(node), index, None))
     return node
-
-
-def clean_value(value):
-    if not callable(value):
-        return value
-
-    args = {
-        'prevent_default': False,
-        'stop_propagation': False,
-        'stop_immediate_propagation': False,
-    }
-
-    while isinstance(value, CallbackWrapper):
-        args[value.key] = value.value
-        value = value.callback
-
-    parts = ['call(event']
-    for arg in ['prevent_default', 'stop_propagation', 'stop_immediate_propagation']:
-        parts.append(', ')
-        parts.append(json.dumps(args[arg]))
-    parts.append(')')
-    return ''.join(parts)
 
 
 def node_parts(node):
@@ -137,11 +158,19 @@ def node_parts(node):
 
 
 def node_diff(old_node, new_node, path=()):
-    old_nodes = enumerate(node_flatten(old_node))
-    new_nodes = enumerate(node_flatten(new_node))
+    old_nodes = node_flatten(old_node)
+    new_nodes = node_flatten(new_node)
 
-    for (index, old_node), (_, new_node) in zip(old_nodes, new_nodes):
-        if new_node is old_node:
+    for index, (old_node, new_node) in enumerate(zip_longest(old_nodes, new_nodes)):
+        if old_node is None:
+            yield ('insert', *path, index, clean_node(new_node))
+
+        elif new_node is None:
+            yield ('remove', *path, index)
+            for _ in old_nodes:
+                yield ('remove', *path, index)
+
+        elif new_node is old_node:
             pass
 
         elif (
@@ -175,16 +204,4 @@ def node_diff(old_node, new_node, path=()):
             pass
 
         else:
-            yield ('replace', *path, index, new_node)
-
-    try:
-        old_index, _ = next(old_nodes)
-    except StopIteration:
-        pass
-    else:
-        yield ('remove', *path, old_index)
-        for _ in old_nodes:
-            yield ('remove', *path, old_index)
-
-    for index, node in new_nodes:
-        yield ('insert', *path, index, node)
+            yield ('replace', *path, index, clean_node(new_node))
