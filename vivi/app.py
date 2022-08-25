@@ -19,6 +19,9 @@ SCRIPT_BEFORE, SCRIPT_AFTER = Path(__file__).parent.joinpath('app.js').read_text
 
 
 def wrap(result, script=None):
+    if isinstance(result, tuple) and result[0] is None and len(result) == 3:
+        result = result[2]
+
     if not isinstance(result, tuple) or result[0] != 'html':
         result = ('html', {}, ('body', {}, result))
 

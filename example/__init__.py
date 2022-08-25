@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 from vivi import Vivi
 from vivi.elements import component, h, fragment
@@ -75,7 +76,7 @@ def io():
             if data_fut is None else
             'loading...'
             if data is None else
-            json.dumps(data)
+            h.code(json.dumps(data))
         ),
         h.button(
             onclick=onclick,
@@ -88,9 +89,9 @@ def io():
 def examples():
     return fragment(
         h.ul(
-            h.li(link(to='/counters')('Counters')),
-            h.li(link(to='/greeter')('Greeter')),
-            h.li(link(to='/io')('IO')),
+            h.li(link(to='/counters', add_active=True)('Counters')),
+            h.li(link(to='/greeter', add_active=True)('Greeter')),
+            h.li(link(to='/io', add_active=True)('IO')),
         ),
         router(
             ('/', counters),
@@ -102,4 +103,11 @@ def examples():
     )
 
 
-app = Vivi(examples, debug=True)
+app = Vivi(
+    h.html(
+        h.head(h.link(rel='stylesheet', href='/static/main.css')),
+        h.body(examples()),
+    ),
+    debug=True,
+    static_path=Path(__file__).parent / 'static',
+)

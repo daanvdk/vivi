@@ -10,7 +10,7 @@ from .events import prevent_default
 
 
 @component
-def link(to, children, **props):
+def link(to, children, add_active=False, **props):
     url = use_url()
     push_url = use_push_url()
 
@@ -21,6 +21,12 @@ def link(to, children, **props):
     def onclick(e):
         if not current:
             push_url(to)
+
+    if add_active and url == to:
+        try:
+            props['class'] = f'{props["class"]} active'
+        except KeyError:
+            props['class'] = 'active'
 
     return h.a(href=to, onclick=onclick, **props)(*children)
 
