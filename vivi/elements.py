@@ -116,13 +116,26 @@ class HTMLElement(Element):
                 else:
                     prev_child_state = None
                     prev_child_result = child
+                _ctx.rerender_paths.prune((*_ctx.path, 'render'))
 
-            elif comp == EQUIVALENT:
-                state.append((prev_child, prev_child_state))
-                child_results.append(prev_child_result)
-                continue
+            if comp == EQUIVALENT:
+                path = (*_ctx.path, i)
+                if path in _ctx.rerender_paths:
+                    comp = COMPATIBLE
 
-            if isinstance(child, Element):
+            if comp == EQUIVALENT:
+                child = prev_child
+                child_state = prev_child_state
+                child_result = prev_child_result
+                for subpath in _ctx.rerender_paths.children(path, stop_at_value=True):
+                    old_path = _ctx.path
+                    _ctx.path = list(subpath)
+                    try:
+                        child_state, child_result = child._rerender(subpath[len(path):], child_state, child_result)
+                    finally:
+                        _ctx.path = old_path
+
+            elif isinstance(child, Element):
                 _ctx.path.append(i)
                 try:
                     child_state, child_result = child._render(
@@ -219,8 +232,20 @@ class Component(Element):
             comp = INCOMPATIBLE
 
         if comp == EQUIVALENT:
+            path = (*_ctx.path, 'render')
+            if path in _ctx.rerender_paths:
+                comp = COMPATIBLE
+
+        if comp == EQUIVALENT:
             elem_state = prev_elem_state
             result = prev_result
+            for subpath in _ctx.rerender_paths.children(path, stop_at_value=True):
+                old_path = _ctx.path
+                _ctx.path = list(subpath)
+                try:
+                    elem_state, result = elem._rerender(subpath[len(path):], elem_state, result)
+                finally:
+                    _ctx.path = old_path
         else:
             if comp == INCOMPATIBLE:
                 if isinstance(prev_elem, Element):
@@ -230,6 +255,7 @@ class Component(Element):
                 else:
                     prev_elem_state = None
                     prev_result = elem
+                _ctx.rerender_paths.prune((*_ctx.path, 'render'))
 
             if isinstance(elem, Element):
                 _ctx.path.append('render')

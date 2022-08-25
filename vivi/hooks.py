@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from .context import create_context
+
 
 _ctx = SimpleNamespace()
 
@@ -77,24 +79,7 @@ def use_effect(*key):
     return decorator
 
 
-def use_url():
-    ref = use_ref()
-
-    if hasattr(ref, '_vivi_cleanup'):
-        ref._vivi_cleanup()
-
-    path = tuple(_ctx.path)
-    url_paths = _ctx.url_paths
-    url_paths[path] += 1
-
-    def cleanup():
-        url_paths[path] -= 1
-        if url_paths[path] == 0:
-            del url_paths[path]
-
-    ref._vivi_cleanup = cleanup
-
-    return _ctx.url
+_url_provider, use_url = create_context()
 
 
 def use_push_url():

@@ -1,6 +1,4 @@
 import asyncio
-from collections import Counter
-from itertools import chain
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,8 +10,9 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import Response
 from starlette.websockets import WebSocketDisconnect
 
-from .hooks import _ctx
+from .hooks import _ctx, _url_provider
 from .node import SafeText, node_get, node_parts, node_diff
+from .paths import Paths
 
 
 SCRIPT_BEFORE, SCRIPT_AFTER = Path(__file__).parent.joinpath('app.js').read_text().split('{{socket_url}}')
@@ -65,7 +64,7 @@ class Vivi(Starlette):
     async def _http(self, request):
         queue = asyncio.Queue()
         url = request['path']
-        url_paths = Counter()
+        contexts = {}
 
         def rerender_path(path):
             queue.put_nowait(('path', path))
@@ -76,23 +75,25 @@ class Vivi(Starlette):
         def replace_url(url):
             queue.put_nowait(('replace_url', url))
 
+        elem = _url_provider(self._elem, value=url)
+
         _ctx.static = True
         _ctx.rerender_path = rerender_path
         _ctx.push_url = push_url
         _ctx.replace_url = replace_url
-        _ctx.url = url
-        _ctx.url_paths = url_paths
+        _ctx.contexts = contexts
+        _ctx.rerender_paths = Paths()
         _ctx.path = []
         try:
-            state, result = self._elem._render(*self._elem._init())
+            state, result = elem._render(*elem._init())
             static = _ctx.static
         finally:
             del _ctx.static
             del _ctx.rerender_path
             del _ctx.push_url
             del _ctx.replace_url
-            del _ctx.url
-            del _ctx.url_paths
+            del _ctx.contexts
+            del _ctx.rerender_paths
             del _ctx.path
 
         if static:
@@ -105,14 +106,14 @@ class Vivi(Starlette):
                 json.dumps(request.url_for('websocket', session_id=session_id)) +
                 SCRIPT_AFTER
             ))
-            self._sessions[session_id] = (state, result, script, queue, rerender_path, push_url, replace_url, url, url_paths)
+            self._sessions[session_id] = (state, result, script, queue, rerender_path, push_url, replace_url, url, contexts)
 
             def session_timeout():
                 try:
                     state, result, *_ = self._sessions.pop(session_id)
                 except KeyError:
                     return
-                self._elem._unmount(state, result)
+                elem._unmount(state, result)
 
             loop = asyncio.get_running_loop()
             loop.call_later(5, session_timeout)
@@ -130,7 +131,7 @@ class Vivi(Starlette):
 
         session_id = socket.path_params['session_id']
         try:
-            state, result, script, queue, rerender_path, push_url, replace_url, url, url_paths = self._sessions.pop(session_id)
+            state, result, script, queue, rerender_path, push_url, replace_url, url, contexts = self._sessions.pop(session_id)
         except KeyError:
             await socket.close()
             return
@@ -150,7 +151,7 @@ class Vivi(Starlette):
                 try:
                     event_type, *path, details = receive_fut.result()
                 except WebSocketDisconnect:
-                    self._elem._unmount(state, result)
+                    _url_provider(self._elem, value=url)._unmount(state, result)
                     return
 
                 if event_type == 'pop_url':
@@ -171,39 +172,41 @@ class Vivi(Starlette):
                     changes.append(queue.get_nowait())
 
                 actions = []
-                paths = set()
+                url_changed = False
+                paths = Paths()
                 for change in changes:
                     if change[0] == 'path':
                         _, path = change
-                        paths.add(path)
+                        paths[path] = None
                     elif change[0] in ('pop_url', 'push_url', 'replace_url'):
                         change_type, url = change
-                        paths.update(url_paths)
+                        url_changed = True
                         if change_type != 'pop_url':
                             actions.append(change)
                     else:
                         raise ValueError(f'unknown change: {change[0]}')
 
-                if paths:
+                if url_changed or paths:
                     old_result = wrap(result, script)
+
+                    elem = _url_provider(self._elem, value=url)
 
                     _ctx.static = False
                     _ctx.rerender_path = rerender_path
                     _ctx.push_url = push_url
                     _ctx.replace_url = replace_url
-                    _ctx.url = url
-                    _ctx.url_paths = url_paths
+                    _ctx.contexts = contexts
+                    _ctx.rerender_paths = paths
+                    _ctx.path = []
                     try:
-                        for path in sorted(paths, reverse=True):
-                            _ctx.path = list(path)
-                            state, result = self._elem._rerender(path, state, result)
+                        state, result = elem._render(state, result)
                     finally:
                         del _ctx.static
                         del _ctx.rerender_path
                         del _ctx.push_url
                         del _ctx.replace_url
-                        del _ctx.url
-                        del _ctx.url_paths
+                        del _ctx.contexts
+                        del _ctx.rerender_paths
                         del _ctx.path
 
                     new_result = wrap(result, script)
