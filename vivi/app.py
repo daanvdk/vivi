@@ -211,6 +211,6 @@ class Vivi(Starlette):
                     actions.extend(node_diff(old_result, new_result))
 
                 if actions:
-                    await socket.send_json(actions)
+                    await socket.send_text(json.dumps(actions, separators=(',', ':')))
 
                 queue_fut = loop.create_task(queue.get())
