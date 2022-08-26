@@ -1,4 +1,5 @@
 import asyncio
+from itertools import islice
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,25 +16,65 @@ from .node import SafeText, node_get, node_parts, node_diff
 from .paths import Paths
 
 
+
+DOCTYPE = SafeText('<!doctype html>')
 SCRIPT_BEFORE, SCRIPT_AFTER = Path(__file__).parent.joinpath('app.js').read_text().split('{{socket_url}}')
 
 
-def wrap(result, script=None):
-    if isinstance(result, tuple) and result[0] is None and len(result) == 3:
-        result = result[2]
+def wrap(result, script=None, prev_head=None):
+    while isinstance(result, tuple) and result[0] is None and len(result) == 4:
+        result = result[3]
 
     if not isinstance(result, tuple) or result[0] != 'html':
-        result = ('html', {}, ('body', {}, result))
+        result = ('html', {}, {0: 0}, ('body', {}, {0: 0}, result))
+
+    head = None
+    body = None
+
+    stack = [islice(result, 3, None)]
+    while stack:
+        try:
+            node = next(stack[-1])
+        except StopIteration:
+            stack.pop()
+            continue
+
+        if isinstance(node, tuple) and node[0] is None:
+            stack.append(islice(result, 3, None))
+        elif isinstance(node, tuple) and node[0] == 'head':
+            assert head is None
+            head = node
+        elif isinstance(node, tuple) and node[0] == 'body':
+            assert body is None
+            body = node
+        else:
+            raise ValueError(f'unexpected node in html: {node}')
+
+    original_head = head
 
     if script is not None:
-        for i, child in enumerate(result[2:], 2):
-            if isinstance(child, tuple) and child[0] == 'head':
-                result = (*result[:i], (*child, script), *result[i + 1:])
-                break
+        if head is None:
+            head = ('head', {}, {0: 0}, script)
         else:
-            result = (*result[:2], ('head', {}, script), *result[2:])
+            _, props, mapping, *children = head
+            if head is prev_head:
+                mapping = {i: i for i in range(len(children))}
+            new_mapping = {0: 0}
+            for index, prev_index in mapping.items():
+                new_mapping[index + 1] = prev_index + 1
+            head = ('head', {}, new_mapping, script, *children)
 
-    return (None, {}, SafeText('<!doctype html>'), result)
+    if head is None:
+        head = ('head', {}, {})
+    if body is None:
+        body = ('body', {}, {})
+
+    result = (
+        None, {}, {0: 0, 1: 1},
+        DOCTYPE,
+        ('html', result[1], {0: 0, 1: 1}, head, body),
+    )
+    return result, original_head
 
 
 class Vivi(Starlette):
@@ -101,15 +142,18 @@ class Vivi(Starlette):
 
         if static:
             self._elem._unmount(state, result)
-            result = wrap(result)
+            result, _ = wrap(result)
         else:
             session_id = uuid4()
-            script = ('script', {}, SafeText(
+            script = ('script', {}, {0: 0}, SafeText(
                 SCRIPT_BEFORE +
                 json.dumps(request.url_for('websocket', session_id=session_id)) +
                 SCRIPT_AFTER
             ))
-            self._sessions[session_id] = (state, result, script, queue, rerender_path, push_url, replace_url, url, contexts)
+            base_result = result
+            result, head = wrap(result, script)
+
+            self._sessions[session_id] = (state, base_result, head, script, queue, rerender_path, push_url, replace_url, url, contexts)
 
             def session_timeout():
                 try:
@@ -120,8 +164,6 @@ class Vivi(Starlette):
 
             loop = asyncio.get_running_loop()
             loop.call_later(5, session_timeout)
-
-            result = wrap(result, script)
 
         return Response(
             ''.join(node_parts(result)),
@@ -134,7 +176,7 @@ class Vivi(Starlette):
 
         session_id = socket.path_params['session_id']
         try:
-            state, result, script, queue, rerender_path, push_url, replace_url, url, contexts = self._sessions.pop(session_id)
+            state, result, head, script, queue, rerender_path, push_url, replace_url, url, contexts = self._sessions.pop(session_id)
         except KeyError:
             await socket.close()
             return
@@ -161,7 +203,7 @@ class Vivi(Starlette):
                     assert not path
                     queue.put_nowait(('pop_url', details))
                 else:
-                    target = node_get(wrap(result, script), path)
+                    target = node_get(wrap(result, script)[0], path)
                     handler = target[1][f'on{event_type}']
 
                     event = SimpleNamespace(type=event_type, **details)
@@ -187,7 +229,7 @@ class Vivi(Starlette):
                     else:
                         raise ValueError(f'unknown change: {change[0]}')
 
-                old_result = wrap(result, script)
+                old_result, _ = wrap(result, script)
 
                 elem = _url_provider(self._elem, value=url)
 
@@ -209,7 +251,7 @@ class Vivi(Starlette):
                     del _ctx.rerender_paths
                     del _ctx.path
 
-                new_result = wrap(result, script)
+                new_result, head = wrap(result, script, head)
 
                 actions.extend(node_diff(old_result, new_result))
 

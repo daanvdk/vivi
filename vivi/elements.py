@@ -8,10 +8,17 @@ INCOMPATIBLE = object()
 COMPATIBLE = object()
 EQUIVALENT = object()
 
+INDEX_KEY = object()
+
 
 class Element(ABC):
 
     def __init__(self, props, children):
+        try:
+            self._key = props.pop('key')
+        except KeyError:
+            pass
+
         self._props = props
         self._children = children
 
@@ -169,52 +176,70 @@ class HTMLElement(Element):
             return INCOMPATIBLE
 
     def _init(self):
-        return (), (self._tag, self._props)
+        return {}, (self._tag, self._props, {})
 
     def _render(self, prev_state, prev_result):
-        state = []
+        state = {}
         child_results = []
+        child_prev_indexes = {}
 
-        for i, child in enumerate(map(self._clean_elem, self._children)):
-            if i < len(prev_state):
-                prev_child, prev_child_state = prev_state[i]
-                prev_child_result = prev_result[i + 2]
-            else:
+        prev_state = prev_state.copy()
+
+        for index, child in enumerate(map(self._clean_elem, self._children)):
+            try:
+                key = child._key
+            except AttributeError:
+                key = (INDEX_KEY, index)
+
+            if key in state:
+                raise ValueError('duplicate keys')
+
+            try:
+                prev_child, prev_child_state, prev_index = prev_state.pop(key)
+            except KeyError:
                 prev_child = Literal(None)
                 prev_child_state = None
                 prev_child_result = None
+            else:
+                prev_child_result = prev_result[prev_index + 3]
+                child_prev_indexes[index] = prev_index
 
-            _ctx.path.append(i)
+            _ctx.path.append(key)
             try:
                 child_state, child_result = child._rerender(prev_child, prev_child_state, prev_child_result)
             finally:
                 _ctx.path.pop()
 
-            state.append((child, child_state))
+            state[key] = (child, child_state, index)
             child_results.append(child_result)
 
-        for (prev_child, prev_child_state), prev_child_result in zip(
-            prev_state[len(self._children):],
-            prev_result[len(self._children) + 2:],
-        ):
+        for prev_child, prev_child_state, prev_index in prev_state.values():
+            prev_child_result = prev_result[prev_index + 3]
             prev_child._unmount(prev_child_state, prev_child_result)
 
-        return tuple(state), (self._tag, self._props, *child_results)
+        return state, (self._tag, self._props, child_prev_indexes, *child_results)
 
     def _unmount(self, state, result):
-        for (child, child_state), child_result in zip(state, result[2:]):
-            if isinstance(child, Element):
-                child._unmount(child_state, child_result)
+        for child, child_state, index in state.values():
+            child_result = result[index + 3]
+            child._unmount(child_state, child_result)
 
     def _extract(self, state, result, key):
-        child, child_state = state[key]
-        child_result = result[key + 2]
+        child, child_state, index = state[key]
+        child_result = result[index + 3]
         return child, child_state, child_result
 
     def _insert(self, state, result, key, child_state, child_result):
-        child, _ = state[key]
-        state = (*state[:key], (child, child_state), *state[key + 1:])
-        result = (*result[:key + 2], child_result, *result[key + 3:])
+        child, _, index = state[key]
+        state = {**state, key: (child, child_state, index)}
+
+        tag, props, _, *children = result
+        result = (
+            tag, props,
+            {i: i for i in range(len(children))},
+            *children[:index], child_result, *children[index + 1:],
+        )
+
         return state, result
 
 
