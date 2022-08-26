@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 
 from .hooks import _ctx
+from .node import SafeText
 
 
-INCOMPATIBLE = 0
-COMPATIBLE = 1
-EQUIVALENT = 2
+INCOMPATIBLE = object()
+COMPATIBLE = object()
+EQUIVALENT = object()
 
 
 class Element(ABC):
@@ -42,21 +43,101 @@ class Element(ABC):
     def _insert(self, state, result, key, child_state, child_result):
         raise NotImplementedError
 
-    def _rerender(self, path, state, result):
-        try:
-            head, *tail = path
-        except ValueError:
-            return self._render(state, result)
+    def _clean_elem(self, elem):
+        if elem is None or isinstance(elem, (SafeText, str)):
+            elem = Literal(elem)
 
-        child, child_state, child_result = self._extract(state, result, head)
-        child_state, child_result = child._rerender(tail, child_state, child_result)
-        return self._insert(state, result, head, child_state, child_result)
+        if not isinstance(elem, Element) and not isinstance(elem, str):
+            try:
+                children = tuple(elem)
+            except TypeError:
+                pass
+            else:
+                elem = HTMLElement(None, {}, children)
+
+        if not isinstance(elem, Element):
+            elem = Literal(str(elem))
+
+        return elem
+
+    def _rerender(self, prev_elem, prev_state, prev_result):
+        comp = self._comp(prev_elem)
+
+        if comp is INCOMPATIBLE:
+            prev_elem._unmount(prev_state, prev_result)
+            _ctx.rerender_paths.prune(_ctx.path)
+            prev_state, prev_result = self._init()
+
+        if comp is EQUIVALENT and _ctx.path not in _ctx.rerender_paths:
+            state = prev_state
+            result = prev_result
+
+            for subpath in _ctx.rerender_paths.children(_ctx.path, stop_at_value=True):
+                path = _ctx.path
+                _ctx.path = list(subpath)
+                try:
+                    state, result = self._rerender_path(subpath[len(path):], state, result)
+                finally:
+                    _ctx.path = path
+        else:
+            state, result = self._render(prev_state, prev_result)
+
+        return state, result
+
+    def _rerender_path(self, path, state, result):
+        stack = []
+        elem = self
+
+        for key in path:
+            stack.append((elem, state, result, key))
+            elem, state, result = elem._extract(state, result, key)
+
+        state, result = elem._render(state, result)
+
+        while stack:
+            elem, prev_state, prev_result, key = stack.pop()
+            state, result = elem._insert(prev_state, prev_result, key, state, result)
+
+        assert elem is self
+        return state, result
 
     def __call__(self, *args, **kwargs):
         if 'children' in kwargs:
             raise ValueError('\'children\' is not allowed as a property name')
 
         return self._copy({**self._props, **kwargs}, (*self._children, *args))
+
+
+class Literal(Element):
+
+    def __init__(self, value):
+        self._value = value
+
+    def _copy(self, props, children):
+        raise ValueError('literals cannot be copied')
+
+    def _comp(self, elem):
+        if not isinstance(elem, Literal):
+            return INCOMPATIBLE
+        elif elem._value != self._value:
+            return COMPATIBLE
+        else:
+            return EQUIVALENT
+
+    def _init(self):
+        return None, self._value
+
+    def _render(self, prev_state, prev_result):
+        return None, self._value
+
+    def _unmount(self, state, result):
+        pass
+
+    def _extract(self, state, result, key):
+        raise ValueError('literals do not have children')
+
+    def _insert(self, state, result, key, child_state, child_result):
+        raise ValueError('literals do not have children')
 
 
 class HTMLElement(Element):
@@ -94,59 +175,20 @@ class HTMLElement(Element):
         state = []
         child_results = []
 
-        for i, child in enumerate(self._children):
+        for i, child in enumerate(map(self._clean_elem, self._children)):
             if i < len(prev_state):
                 prev_child, prev_child_state = prev_state[i]
                 prev_child_result = prev_result[i + 2]
             else:
-                prev_child = None
+                prev_child = Literal(None)
                 prev_child_state = None
                 prev_child_result = None
 
-            if isinstance(child, Element):
-                comp = child._comp(prev_child)
-            else:
-                comp = INCOMPATIBLE
-
-            if comp == INCOMPATIBLE:
-                if isinstance(prev_child, Element):
-                    prev_child._unmount(prev_child_state, prev_child_result)
-                if isinstance(child, Element):
-                    prev_child_state, prev_child_result = child._init()
-                else:
-                    prev_child_state = None
-                    prev_child_result = child
-                _ctx.rerender_paths.prune((*_ctx.path, 'render'))
-
-            if comp == EQUIVALENT:
-                path = (*_ctx.path, i)
-                if path in _ctx.rerender_paths:
-                    comp = COMPATIBLE
-
-            if comp == EQUIVALENT:
-                child = prev_child
-                child_state = prev_child_state
-                child_result = prev_child_result
-                for subpath in _ctx.rerender_paths.children(path, stop_at_value=True):
-                    old_path = _ctx.path
-                    _ctx.path = list(subpath)
-                    try:
-                        child_state, child_result = child._rerender(subpath[len(path):], child_state, child_result)
-                    finally:
-                        _ctx.path = old_path
-
-            elif isinstance(child, Element):
-                _ctx.path.append(i)
-                try:
-                    child_state, child_result = child._render(
-                        prev_child_state,
-                        prev_child_result,
-                    )
-                finally:
-                    _ctx.path.pop()
-            else:
-                child_state = None
-                child_result = child
+            _ctx.path.append(i)
+            try:
+                child_state, child_result = child._rerender(prev_child, prev_child_state, prev_child_result)
+            finally:
+                _ctx.path.pop()
 
             state.append((child, child_state))
             child_results.append(child_result)
@@ -202,7 +244,7 @@ class Component(Element):
             return INCOMPATIBLE
 
     def _init(self):
-        return (None, None, None), None
+        return (None, Literal(None), None), None
 
     def _render(self, prev_state, prev_result):
         refs, prev_elem, prev_elem_state = prev_state
@@ -212,7 +254,7 @@ class Component(Element):
             props = self._props
             if self._children:
                 props = {**props, 'children': self._children}
-            elem = self._func(**props)
+            elem = self._clean_elem(self._func(**props))
 
             if refs is None:
                 refs = tuple(_ctx.refs)
@@ -226,49 +268,11 @@ class Component(Element):
         finally:
             del _ctx.refs
 
-        if isinstance(elem, Element):
-            comp = elem._comp(prev_elem)
-        else:
-            comp = INCOMPATIBLE
-
-        if comp == EQUIVALENT:
-            path = (*_ctx.path, 'render')
-            if path in _ctx.rerender_paths:
-                comp = COMPATIBLE
-
-        if comp == EQUIVALENT:
-            elem_state = prev_elem_state
-            result = prev_result
-            for subpath in _ctx.rerender_paths.children(path, stop_at_value=True):
-                old_path = _ctx.path
-                _ctx.path = list(subpath)
-                try:
-                    elem_state, result = elem._rerender(subpath[len(path):], elem_state, result)
-                finally:
-                    _ctx.path = old_path
-        else:
-            if comp == INCOMPATIBLE:
-                if isinstance(prev_elem, Element):
-                    prev_elem._unmount(prev_elem_state, prev_result)
-                if isinstance(elem, Element):
-                    prev_elem_state, prev_result = elem._init()
-                else:
-                    prev_elem_state = None
-                    prev_result = elem
-                _ctx.rerender_paths.prune((*_ctx.path, 'render'))
-
-            if isinstance(elem, Element):
-                _ctx.path.append('render')
-                try:
-                    elem_state, result = elem._render(
-                        prev_elem_state,
-                        prev_result,
-                    )
-                finally:
-                    _ctx.path.pop()
-            else:
-                elem_state = None
-                result = elem
+        _ctx.path.append('render')
+        try:
+            elem_state, result = elem._rerender(prev_elem, prev_elem_state, prev_result)
+        finally:
+            _ctx.path.pop()
 
         return (refs, elem, elem_state), result
 

@@ -175,7 +175,6 @@ class Vivi(Starlette):
                     changes.append(queue.get_nowait())
 
                 actions = []
-                url_changed = False
                 paths = Paths()
                 for change in changes:
                     if change[0] == 'path':
@@ -183,38 +182,36 @@ class Vivi(Starlette):
                         paths[path] = None
                     elif change[0] in ('pop_url', 'push_url', 'replace_url'):
                         change_type, url = change
-                        url_changed = True
                         if change_type != 'pop_url':
                             actions.append(change)
                     else:
                         raise ValueError(f'unknown change: {change[0]}')
 
-                if url_changed or paths:
-                    old_result = wrap(result, script)
+                old_result = wrap(result, script)
 
-                    elem = _url_provider(self._elem, value=url)
+                elem = _url_provider(self._elem, value=url)
 
-                    _ctx.static = False
-                    _ctx.rerender_path = rerender_path
-                    _ctx.push_url = push_url
-                    _ctx.replace_url = replace_url
-                    _ctx.contexts = contexts
-                    _ctx.rerender_paths = paths
-                    _ctx.path = []
-                    try:
-                        state, result = elem._render(state, result)
-                    finally:
-                        del _ctx.static
-                        del _ctx.rerender_path
-                        del _ctx.push_url
-                        del _ctx.replace_url
-                        del _ctx.contexts
-                        del _ctx.rerender_paths
-                        del _ctx.path
+                _ctx.static = False
+                _ctx.rerender_path = rerender_path
+                _ctx.push_url = push_url
+                _ctx.replace_url = replace_url
+                _ctx.contexts = contexts
+                _ctx.rerender_paths = paths
+                _ctx.path = []
+                try:
+                    state, result = elem._render(state, result)
+                finally:
+                    del _ctx.static
+                    del _ctx.rerender_path
+                    del _ctx.push_url
+                    del _ctx.replace_url
+                    del _ctx.contexts
+                    del _ctx.rerender_paths
+                    del _ctx.path
 
-                    new_result = wrap(result, script)
+                new_result = wrap(result, script)
 
-                    actions.extend(node_diff(old_result, new_result))
+                actions.extend(node_diff(old_result, new_result))
 
                 if actions:
                     await socket.send_text(json.dumps(actions, separators=(',', ':')))
