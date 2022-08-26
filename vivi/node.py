@@ -12,6 +12,9 @@ class SafeText:
     def __init__(self, text):
         self.text = text
 
+    def __bool__(self):
+        return bool(self.text)
+
     def __eq__(self, other):
         if isinstance(other, SafeText):
             return other.text == self.text
@@ -64,10 +67,7 @@ def clean_node(node):
 
 
 def node_flatten(node):
-    if not isinstance(node, tuple) or node[0] is not None:
-        stack = [iter([node])]
-    else:
-        stack = [islice(node, 2, None)]
+    stack = [iter([node])]
 
     while stack:
         try:
@@ -103,12 +103,13 @@ def node_flatten(node):
                     else:
                         node = SafeText(node.text + next_node.text)
                 else:
-                    yield node
+                    if node:
+                        yield node
                     node = next_node
                     break
 
-        assert node is not None
-        yield node
+        if node is not None:
+            yield node
 
 
 def node_get(node, path):
