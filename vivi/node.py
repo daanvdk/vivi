@@ -39,7 +39,11 @@ def clean_value(value):
         value = value.callback
 
     parts = ['call(event']
-    for arg in ['prevent_default', 'stop_propagation', 'stop_immediate_propagation']:
+    for arg in [
+        'prevent_default',
+        'stop_propagation',
+        'stop_immediate_propagation',
+    ]:
         parts.append(', ')
         parts.append(json.dumps(args[arg]))
     parts.append(')')
@@ -123,17 +127,26 @@ def node_flatten(node):
                     continue
 
                 if isinstance(next_node, tuple) and next_node[0] is None:
-                    stack.append((enumerate(islice(next_node, 3, None)), (*path, index)))
+                    stack.append((
+                        enumerate(islice(next_node, 3, None)),
+                        (*path, index),
+                    ))
                     continue
 
                 if isinstance(next_node, str):
                     if isinstance(node, str):
                         node += next_node
                     else:
-                        node = SafeText(node.text + html.escape(next_node, quote=False))
+                        node = SafeText(
+                            node.text +
+                            html.escape(next_node, quote=False)
+                        )
                 elif isinstance(next_node, SafeText):
                     if isinstance(node, str):
-                        node = SafeText(html.escape(node, quote=False) + next_node.text)
+                        node = SafeText(
+                            html.escape(node, quote=False) +
+                            next_node.text
+                        )
                     else:
                         node = SafeText(node.text + next_node.text)
                 else:
@@ -272,12 +285,17 @@ def node_diff(old_node, new_node, path=()):
             index_mapping[b_new] = a_old
             rev_index_mapping[a_old] = b_new
 
-            old_nodes[a_old], old_nodes[b_old] = old_nodes[b_old], old_nodes[a_old]
+            old_nodes[a_old], old_nodes[b_old] = (
+                old_nodes[b_old], old_nodes[a_old]
+            )
 
     # Divide in sections based on the known same nodes
     splits = [
         (0, 0),
-        *((old_index, rev_index_mapping[old_index]) for old_index in old_indexes),
+        *(
+            (old_index, rev_index_mapping[old_index])
+            for old_index in old_indexes
+        ),
         (len(old_nodes), len(new_nodes)),
     ]
     index = 0
@@ -328,7 +346,10 @@ def node_diff(old_node, new_node, path=()):
 
                     for key, value in new_props.items():
                         value = clean_value(value)
-                        if key not in old_props or clean_value(old_props[key]) != value:
+                        if (
+                            key not in old_props or
+                            clean_value(old_props[key]) != value
+                        ):
                             if value is False:
                                 yield ('unset', *path, index, key)
                                 continue

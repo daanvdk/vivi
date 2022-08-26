@@ -1,7 +1,3 @@
-from collections import namedtuple
-import re
-from uuid import UUID
-
 from starlette.routing import compile_path
 
 from .elements import component, h, fragment, Component
@@ -66,7 +62,10 @@ def router(children=(), not_found=fragment):
             first_change = len(children)
         ref.routes[len(children):] = []
 
-    if first_change is not None and (ref.index is None or ref.index >= first_change):
+    if (
+        first_change is not None and
+        (ref.index is None or ref.index >= first_change)
+    ):
         for index in range(first_change, len(ref.routes)):
             _, regex, converters, elem = ref.routes[index]
             match = regex.match(url)

@@ -1,4 +1,4 @@
-from collections.abc import Mapping, MutableMapping
+from collections.abc import MutableMapping
 
 
 VALUE = object()

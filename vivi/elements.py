@@ -79,11 +79,15 @@ class Element(ABC):
             state = prev_state
             result = prev_result
 
-            for subpath in _ctx.rerender_paths.children(_ctx.path, stop_at_value=True):
+            for subpath in _ctx.rerender_paths.children(
+                _ctx.path, stop_at_value=True,
+            ):
                 path = _ctx.path
                 _ctx.path = list(subpath)
                 try:
-                    state, result = self._rerender_path(subpath[len(path):], state, result)
+                    state, result = self._rerender_path(
+                        subpath[len(path):], state, result,
+                    )
                 finally:
                     _ctx.path = path
         else:
@@ -103,7 +107,9 @@ class Element(ABC):
 
         while stack:
             elem, prev_state, prev_result, key = stack.pop()
-            state, result = elem._insert(prev_state, prev_result, key, state, result)
+            state, result = elem._insert(
+                prev_state, prev_result, key, state, result,
+            )
 
         assert elem is self
         return state, result
@@ -206,7 +212,9 @@ class HTMLElement(Element):
 
             _ctx.path.append(key)
             try:
-                child_state, child_result = child._rerender(prev_child, prev_child_state, prev_child_result)
+                child_state, child_result = child._rerender(
+                    prev_child, prev_child_state, prev_child_result,
+                )
             finally:
                 _ctx.path.pop()
 
@@ -217,7 +225,8 @@ class HTMLElement(Element):
             prev_child_result = prev_result[prev_index + 3]
             prev_child._unmount(prev_child_state, prev_child_result)
 
-        return state, (self._tag, self._props, child_prev_indexes, *child_results)
+        result = (self._tag, self._props, child_prev_indexes, *child_results)
+        return state, result
 
     def _unmount(self, state, result):
         for child, child_state, index in state.values():
@@ -295,7 +304,9 @@ class Component(Element):
 
         _ctx.path.append('render')
         try:
-            elem_state, result = elem._rerender(prev_elem, prev_elem_state, prev_result)
+            elem_state, result = elem._rerender(
+                prev_elem, prev_elem_state, prev_result,
+            )
         finally:
             _ctx.path.pop()
 

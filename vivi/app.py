@@ -16,9 +16,11 @@ from .node import SafeText, node_get, node_parts, node_diff
 from .paths import Paths
 
 
-
 DOCTYPE = SafeText('<!doctype html>')
-SCRIPT_BEFORE, SCRIPT_AFTER = Path(__file__).parent.joinpath('app.js').read_text().split('{{socket_url}}')
+SCRIPT_BEFORE, SCRIPT_AFTER = (
+    Path(__file__).parent.joinpath('app.js')
+    .read_text().split('{{socket_url}}')
+)
 
 
 def wrap(result, script=None, prev_head=None):
@@ -79,7 +81,12 @@ def wrap(result, script=None, prev_head=None):
 
 class Vivi(Starlette):
 
-    def __init__(self, elem, *, debug=False, static_path=None, static_route='/static'):
+    def __init__(
+        self, elem, *,
+        debug=False,
+        static_path=None,
+        static_route='/static',
+    ):
         routes = []
 
         if static_path is not None:
@@ -147,13 +154,26 @@ class Vivi(Starlette):
             session_id = uuid4()
             script = ('script', {}, {0: 0}, SafeText(
                 SCRIPT_BEFORE +
-                json.dumps(request.url_for('websocket', session_id=session_id)) +
+                json.dumps(
+                    request.url_for('websocket', session_id=session_id)
+                ) +
                 SCRIPT_AFTER
             ))
             base_result = result
             result, head = wrap(result, script)
 
-            self._sessions[session_id] = (state, base_result, head, script, queue, rerender_path, push_url, replace_url, url, contexts)
+            self._sessions[session_id] = (
+                state,
+                base_result,
+                head,
+                script,
+                queue,
+                rerender_path,
+                push_url,
+                replace_url,
+                url,
+                contexts,
+            )
 
             def session_timeout():
                 try:
@@ -176,7 +196,18 @@ class Vivi(Starlette):
 
         session_id = socket.path_params['session_id']
         try:
-            state, result, head, script, queue, rerender_path, push_url, replace_url, url, contexts = self._sessions.pop(session_id)
+            (
+                state,
+                result,
+                head,
+                script,
+                queue,
+                rerender_path,
+                push_url,
+                replace_url,
+                url,
+                contexts,
+            ) = self._sessions.pop(session_id)
         except KeyError:
             await socket.close()
             return
@@ -196,7 +227,9 @@ class Vivi(Starlette):
                 try:
                     event_type, *path, details = receive_fut.result()
                 except WebSocketDisconnect:
-                    _url_provider(self._elem, value=url)._unmount(state, result)
+                    elem = _url_provider(self._elem, value=url)
+                    wrapped_result, _ = wrap(result, script, head)
+                    elem._unmount(state, wrapped_result)
                     return
 
                 if event_type == 'pop_url':
@@ -256,6 +289,9 @@ class Vivi(Starlette):
                 actions.extend(node_diff(old_result, new_result))
 
                 if actions:
-                    await socket.send_text(json.dumps(actions, separators=(',', ':')))
+                    await socket.send_text(json.dumps(
+                        actions,
+                        separators=(',', ':'),
+                    ))
 
                 queue_fut = loop.create_task(queue.get())
