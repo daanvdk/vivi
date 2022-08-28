@@ -1,3 +1,4 @@
+from collections import defaultdict, deque
 import html
 from itertools import islice
 import json
@@ -22,6 +23,9 @@ class SafeText:
             return html.escape(other, quote=False) == self.text
         else:
             return False
+
+    def __hash__(self):
+        return hash((SafeText, self.text))
 
 
 def clean_value(value):
@@ -252,137 +256,123 @@ def node_diff(old_node, new_node, path=()):
             else:
                 index_mapping[new_index] = old_index
 
-    rev_index_mapping = {v: k for k, v in index_mapping.items()}
+    for new_index, old_index in index_mapping.items():
+        old_node = old_nodes[old_index]
+        new_node = new_nodes[new_index]
+        if old_node[0] != new_node[0]:
+            del index_mapping[new_index]
 
-    # Remove old nodes
-    to_remove = set()
-    for old_index in old_path_indexes.values():
-        try:
-            new_index = rev_index_mapping[old_index]
-        except KeyError:
-            to_remove.add(old_index)
-        else:
-            old_node = old_nodes[old_index]
-            new_node = new_nodes[new_index]
-            if old_node[0] != new_node[0]:
-                to_remove.add(old_index)
-                del index_mapping[new_index]
-                del rev_index_mapping[old_index]
+    old_str_indexes = defaultdict(deque)
 
-    # Make sure nodes are in the correct order
-    old_indexes = sorted(rev_index_mapping)
-    for i in range(0, len(old_indexes) - 1):
-        j = min(
-            range(i, len(old_indexes)),
-            key=lambda i: rev_index_mapping[old_indexes[i]],
-        )
-        if j != i:
-            a_old = old_indexes[i]
-            a_new = rev_index_mapping[a_old]
-            b_old = old_indexes[j]
-            b_new = rev_index_mapping[b_old]
+    for old_index, node in enumerate(old_nodes):
+        if isinstance(node, (str, SafeText)):
+            old_str_indexes[node].append(old_index)
 
-            index_mapping[a_new] = b_old
-            rev_index_mapping[b_old] = a_new
-
-            index_mapping[b_new] = a_old
-            rev_index_mapping[a_old] = b_new
-
-            old_nodes[a_old], old_nodes[b_old] = (
-                old_nodes[b_old], old_nodes[a_old]
-            )
-
-    # Divide in sections based on the known same nodes
-    splits = [
-        (0, 0),
-        *(
-            (old_index, rev_index_mapping[old_index])
-            for old_index in old_indexes
-        ),
-        (len(old_nodes), len(new_nodes)),
-    ]
-    index = 0
-    removes = 0
-
-    for (old_start, new_start), (old_end, new_end) in zip(splits, splits[1:]):
-        while old_start < old_end and new_start < new_end:
-            old_node = old_nodes[old_start]
-            new_node = new_nodes[new_start]
-
-            if old_start in to_remove:
-                assert isinstance(old_node, tuple)
-                removes += 1
-                old_start += 1
-
-            elif not isinstance(new_node, tuple):
-                assert not isinstance(old_node, tuple)
-                while removes:
-                    yield ('remove', *path, index)
-                    removes -= 1
-                if new_node != old_node:
-                    yield ('replace', *path, index, clean_node(new_node))
-                old_start += 1
-                new_start += 1
-                index += 1
-
-            elif not isinstance(old_node, tuple):
-                if removes:
-                    action = 'replace'
-                    removes -= 1
-                else:
-                    action = 'insert'
-                yield (action, *path, index, clean_node(new_nodes[new_start]))
-                new_start += 1
-                index += 1
-
+    for new_index, node in enumerate(new_nodes):
+        if isinstance(node, (str, SafeText)):
+            try:
+                old_index = old_str_indexes[node].popleft()
+            except IndexError:
+                pass
             else:
-                assert old_node[0] == new_node[0]
-                while removes:
-                    yield ('remove', *path, index)
-                    removes -= 1
-                if old_node is not new_node:
-                    _, old_props, old_mapping, *old_children = old_node
-                    _, new_props, new_mapping, *new_children = new_node
+                index_mapping[new_index] = old_index
 
-                    for key in set(old_props) - set(new_props):
-                        yield ('unset', *path, index, key)
+    rev_index_mapping = {value: key for key, value in index_mapping.items()}
 
-                    for key, value in new_props.items():
-                        value = clean_value(value)
-                        if (
-                            key not in old_props or
-                            clean_value(old_props[key]) != value
-                        ):
-                            if value is False:
-                                yield ('unset', *path, index, key)
-                                continue
-                            if value is True:
-                                value = ''
-                            yield ('set', *path, index, key, value)
+    inserts = deque()
+    removes = 0
+    waiting = {}
+    index = 0
+    old_index = 0
 
-                    yield from node_diff(
-                        (None, {}, old_mapping, *old_children),
-                        (None, {}, new_mapping, *new_children),
-                        (*path, index),
-                    )
-                old_start += 1
-                new_start += 1
-                index += 1
+    for new_index, new_node in enumerate(new_nodes):
+        if new_index not in index_mapping:
+            inserts.append(new_node)
+            continue
 
-        while old_start < old_end:
-            removes += 1
-            old_start += 1
+        try:
+            curr_index = waiting.pop(new_index)
+        except KeyError:
+            target_old_index = index_mapping[new_index]
+            while old_index < target_old_index:
+                try:
+                    new_index_ = rev_index_mapping[old_index]
+                except KeyError:
+                    removes += 1
+                else:
+                    waiting[new_index] = index
+                    index += 1
+                old_index += 1
+        else:
+            index -= 1
+            yield ('move', *path, curr_index, index)
+            for new_index_, curr_index_ in waiting.items():
+                if curr_index < curr_index_:
+                    waiting[new_index_] = curr_index_ - 1
 
-        while new_start < new_end:
+        while inserts:
             if removes:
                 action = 'replace'
                 removes -= 1
             else:
                 action = 'insert'
-            yield (action, *path, index, clean_node(new_nodes[new_start]))
+            yield (action, *path, index, clean_node(inserts.popleft()))
             index += 1
-            new_start += 1
+
+        while removes:
+            yield ('remove', *path, index)
+            removes -= 1
+
+        old_node = old_nodes[old_index]
+
+        if old_node is new_node:
+            pass
+        elif isinstance(old_node, tuple) and isinstance(new_node, tuple):
+            _, old_props, old_mapping, *old_children = old_node
+            _, new_props, new_mapping, *new_children = new_node
+
+            for key in set(old_props) - set(new_props):
+                yield ('unset', *path, index, key)
+
+            for key, value in new_props.items():
+                value = clean_value(value)
+                if (
+                    key not in old_props or
+                    clean_value(old_props[key]) != value
+                ):
+                    if value is False:
+                        yield ('unset', *path, index, key)
+                        continue
+                    if value is True:
+                        value = ''
+                    yield ('set', *path, index, key, value)
+
+            yield from node_diff(
+                (None, {}, old_mapping, *old_children),
+                (None, {}, new_mapping, *new_children),
+                (*path, index),
+            )
+        elif old_node != new_node:
+            yield ('replace', *path, index, clean_node(new_node))
+
+        old_index += 1
+        index += 1
+
+    assert not waiting
+
+    removes += len(old_nodes) - old_index
+
+    while inserts:
+        if removes:
+            action = 'replace'
+            removes -= 1
+        else:
+            action = 'insert'
+        yield (action, *path, index, clean_node(inserts.popleft()))
+        index += 1
+
+    assert index == len(new_nodes)
 
     while removes:
-        yield ('remove', *path, index)
+        yield ('remove', *path, len(new_nodes))
         removes -= 1
