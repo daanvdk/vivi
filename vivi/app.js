@@ -108,11 +108,11 @@ socket.addEventListener('message', function (event) {
             }; break;
             case 'set_cookie': {
                 const [key, value] = path;
-                document.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+                document.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(value)}; path=/`;
             }; break;
             case 'unset_cookie': {
                 const [key] = path;
-                document.cookie = `${encodeURIComponent(key)}=; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+                document.cookie = `${encodeURIComponent(key)}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
             }; break;
         }
     }

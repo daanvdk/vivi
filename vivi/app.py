@@ -117,6 +117,7 @@ class Vivi(Starlette):
         queue = asyncio.Queue()
         url = request['path']
         contexts = {}
+        cookies = request.cookies
         cookie_paths = {}
 
         def rerender_path(path):
@@ -143,7 +144,7 @@ class Vivi(Starlette):
         _ctx.set_cookie = set_cookie
         _ctx.unset_cookie = unset_cookie
         _ctx.contexts = contexts
-        _ctx.cookies = request.cookies
+        _ctx.cookies = cookies
         _ctx.cookie_paths = cookie_paths
         _ctx.rerender_paths = Paths()
         _ctx.path = []
@@ -191,6 +192,7 @@ class Vivi(Starlette):
                 unset_cookie,
                 url,
                 contexts,
+                cookies,
                 cookie_paths,
             )
 
@@ -228,6 +230,7 @@ class Vivi(Starlette):
                 unset_cookie,
                 url,
                 contexts,
+                cookies,
                 cookie_paths,
             ) = self._sessions.pop(session_id)
         except KeyError:
@@ -283,13 +286,13 @@ class Vivi(Starlette):
                             actions.append(change)
                     elif change[0] == 'set_cookie':
                         _, key, value = change
-                        socket.cookies[key] = value
+                        cookies[key] = value
                         for path in cookie_paths.get(key, []):
                             paths[path] = None
                         actions.append(change)
                     elif change[0] == 'unset_cookie':
                         _, key = change
-                        del socket.cookies[key]
+                        del cookies[key]
                         for path in cookie_paths.get(key, []):
                             paths[path] = None
                         actions.append(change)
@@ -307,7 +310,7 @@ class Vivi(Starlette):
                 _ctx.set_cookie = set_cookie
                 _ctx.unset_cookie = unset_cookie
                 _ctx.contexts = contexts
-                _ctx.cookies = socket.cookies
+                _ctx.cookies = cookies
                 _ctx.cookie_paths = cookie_paths
                 _ctx.rerender_paths = paths
                 _ctx.path = []
