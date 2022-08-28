@@ -182,6 +182,9 @@ def node_parts(node):
         yield html.escape(node, quote=False)
         return
 
+    if node is None:
+        return
+
     tag, props, _, *children = node
 
     if tag is not None:

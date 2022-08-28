@@ -110,3 +110,47 @@ def use_future(fut, sentinel=None):
         return fut.result()
     else:
         return sentinel
+
+
+NO_DEFAULT = object()
+
+
+def use_cookie(key, default=NO_DEFAULT):
+    ref = use_ref()
+
+    if not hasattr(ref, 'key') or ref.key != key:
+        ref.key = key
+
+        if hasattr(ref, '_vivi_cleanup'):
+            ref._vivi_cleanup()
+
+        cookie_paths = _ctx.cookie_paths
+        path = tuple(_ctx.path)
+
+        cookie_paths.setdefault(key, set()).add(path)
+
+        def cleanup():
+            paths = cookie_paths[key]
+            paths.remove(path)
+            if not paths:
+                del cookie_paths[key]
+
+        ref._vivi_cleanup = cleanup
+
+    try:
+        return _ctx.cookies[key]
+    except KeyError:
+        if default is NO_DEFAULT:
+            raise
+        else:
+            return default
+
+
+def use_set_cookie():
+    _ctx.static = False
+    return _ctx.set_cookie
+
+
+def use_unset_cookie():
+    _ctx.static = False
+    return _ctx.unset_cookie

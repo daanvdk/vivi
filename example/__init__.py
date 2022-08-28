@@ -4,7 +4,10 @@ from pathlib import Path
 
 from vivi import Vivi
 from vivi.elements import component, h, fragment
-from vivi.hooks import use_state, use_callback, use_future
+from vivi.hooks import (
+    use_state, use_callback, use_future, use_cookie, use_set_cookie,
+    use_unset_cookie,
+)
 from vivi.events import prevent_default
 from vivi.urls import link, router
 
@@ -86,28 +89,71 @@ def io():
 
 
 @component
-def examples():
+def cookie(name):
+    value = use_cookie(name, None)
+    new_value, set_new_value = use_state('')
+    set_cookie = use_set_cookie()
+    unset_cookie = use_unset_cookie()
+
+    @use_callback(set_new_value)
+    @prevent_default
+    def oninput(e):
+        set_new_value(e.value)
+
+    @use_callback(set_cookie, name, new_value, set_new_value)
+    @prevent_default
+    def set(e):
+        set_cookie(name, new_value)
+        set_new_value('')
+
+    @use_callback(unset_cookie, name)
+    @prevent_default
+    def unset(e):
+        unset_cookie(name)
+
     return fragment(
-        h.ul(
-            h.li(link(to='/counters', add_active=True)('Counters')),
-            h.li(link(to='/greeter', add_active=True)('Greeter')),
-            h.li(link(to='/io', add_active=True)('IO')),
-        ),
-        router(
-            ('/', counters),
-            ('/counters', counters),
-            ('/greeter', greeter),
-            ('/io', io),
-            not_found=h.p('Page not found.'),
+        h.h1(f'Cookie: {name}'),
+        h.div('no value set' if value is None else f'current_value: {value}'),
+        h.input(value=new_value, oninput=oninput),
+        h.button(onclick=set)('set'),
+        None if value is None else h.button(onclick=unset)('unset'),
+    )
+
+
+@component
+def cookies():
+    return fragment(
+        cookie(name='foo'),
+        cookie(name='bar'),
+        cookie(name='baz'),
+    )
+
+
+@component
+def examples():
+    return h.html(
+        h.head(h.link(rel='stylesheet', href='/static/main.css')),
+        h.body(
+            h.ul(
+                h.li(link(to='/counters', add_active=True)('Counters')),
+                h.li(link(to='/greeter', add_active=True)('Greeter')),
+                h.li(link(to='/io', add_active=True)('IO')),
+                h.li(link(to='/cookies', add_active=True)('Cookies')),
+            ),
+            router(
+                ('/', counters),
+                ('/counters', counters),
+                ('/greeter', greeter),
+                ('/io', io),
+                ('/cookies', cookies),
+                not_found=h.p('Page not found.'),
+            ),
         ),
     )
 
 
 app = Vivi(
-    h.html(
-        h.head(h.link(rel='stylesheet', href='/static/main.css')),
-        h.body(examples()),
-    ),
+    examples,
     debug=True,
     static_path=Path(__file__).parent / 'static',
 )

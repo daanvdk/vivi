@@ -106,6 +106,14 @@ socket.addEventListener('message', function (event) {
                 const [url] = path;
                 history.replaceState({ url }, '', url);
             }; break;
+            case 'set_cookie': {
+                const [key, value] = path;
+                document.cookie = `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+            }; break;
+            case 'unset_cookie': {
+                const [key] = path;
+                document.cookie = `${encodeURIComponent(key)}=; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+            }; break;
         }
     }
 });

@@ -1,4 +1,5 @@
 import asyncio
+from http.cookies import BaseCookie
 from itertools import islice
 import json
 from pathlib import Path
@@ -116,6 +117,7 @@ class Vivi(Starlette):
         queue = asyncio.Queue()
         url = request['path']
         contexts = {}
+        cookie_paths = {}
 
         def rerender_path(path):
             queue.put_nowait(('path', path))
@@ -126,13 +128,23 @@ class Vivi(Starlette):
         def replace_url(url):
             queue.put_nowait(('replace_url', url))
 
+        def set_cookie(key, value):
+            queue.put_nowait(('set_cookie', key, value))
+
+        def unset_cookie(key):
+            queue.put_nowait(('unset_cookie', key))
+
         elem = _url_provider(self._elem, value=url)
 
         _ctx.static = True
         _ctx.rerender_path = rerender_path
         _ctx.push_url = push_url
         _ctx.replace_url = replace_url
+        _ctx.set_cookie = set_cookie
+        _ctx.unset_cookie = unset_cookie
         _ctx.contexts = contexts
+        _ctx.cookies = request.cookies
+        _ctx.cookie_paths = cookie_paths
         _ctx.rerender_paths = Paths()
         _ctx.path = []
         try:
@@ -143,7 +155,11 @@ class Vivi(Starlette):
             del _ctx.rerender_path
             del _ctx.push_url
             del _ctx.replace_url
+            del _ctx.set_cookie
+            del _ctx.unset_cookie
             del _ctx.contexts
+            del _ctx.cookies
+            del _ctx.cookie_paths
             del _ctx.rerender_paths
             del _ctx.path
 
@@ -171,8 +187,11 @@ class Vivi(Starlette):
                 rerender_path,
                 push_url,
                 replace_url,
+                set_cookie,
+                unset_cookie,
                 url,
                 contexts,
+                cookie_paths,
             )
 
             def session_timeout():
@@ -205,8 +224,11 @@ class Vivi(Starlette):
                 rerender_path,
                 push_url,
                 replace_url,
+                set_cookie,
+                unset_cookie,
                 url,
                 contexts,
+                cookie_paths,
             ) = self._sessions.pop(session_id)
         except KeyError:
             await socket.close()
@@ -259,6 +281,18 @@ class Vivi(Starlette):
                         change_type, url = change
                         if change_type != 'pop_url':
                             actions.append(change)
+                    elif change[0] == 'set_cookie':
+                        _, key, value = change
+                        socket.cookies[key] = value
+                        for path in cookie_paths.get(key, []):
+                            paths[path] = None
+                        actions.append(change)
+                    elif change[0] == 'unset_cookie':
+                        _, key = change
+                        del socket.cookies[key]
+                        for path in cookie_paths.get(key, []):
+                            paths[path] = None
+                        actions.append(change)
                     else:
                         raise ValueError(f'unknown change: {change[0]}')
 
@@ -270,7 +304,11 @@ class Vivi(Starlette):
                 _ctx.rerender_path = rerender_path
                 _ctx.push_url = push_url
                 _ctx.replace_url = replace_url
+                _ctx.set_cookie = set_cookie
+                _ctx.unset_cookie = unset_cookie
                 _ctx.contexts = contexts
+                _ctx.cookies = socket.cookies
+                _ctx.cookie_paths = cookie_paths
                 _ctx.rerender_paths = paths
                 _ctx.path = []
                 try:
@@ -280,7 +318,11 @@ class Vivi(Starlette):
                     del _ctx.rerender_path
                     del _ctx.push_url
                     del _ctx.replace_url
+                    del _ctx.set_cookie
+                    del _ctx.unset_cookie
                     del _ctx.contexts
+                    del _ctx.cookies
+                    del _ctx.cookie_paths
                     del _ctx.rerender_paths
                     del _ctx.path
 
