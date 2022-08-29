@@ -87,6 +87,8 @@ class Vivi(Starlette):
         debug=False,
         static_path=None,
         static_route='/static',
+        on_startup=[],
+        on_shutdown=[],
     ):
         routes = []
 
@@ -108,7 +110,12 @@ class Vivi(Starlette):
             name='websocket',
         ))
 
-        super().__init__(debug=debug, routes=routes)
+        super().__init__(
+            debug=debug,
+            routes=routes,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+        )
 
         self._elem = elem
         self._sessions = {}
