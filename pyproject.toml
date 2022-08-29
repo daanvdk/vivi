@@ -3,6 +3,7 @@ name = "vivi"
 version = "0.1.0"
 description = ""
 authors = ["Daan van der Kallen <mail@daanvdk.com>"]
+license = "MIT"
 
 [tool.poetry.dependencies]
 python = "^3.9"
