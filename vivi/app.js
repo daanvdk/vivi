@@ -87,6 +87,21 @@ socket.addEventListener('message', function (event) {
                 const parent = getNode(path);
                 parent.replaceChild(node, parent.childNodes[index]);
             }; break;
+            case 'move': {
+                let newIndex = path.pop();
+                const oldIndex = path.pop();
+                const parent = getNode(path);
+                if (oldIndex === newIndex) {
+                    break;
+                } else if (oldIndex < newIndex) {
+                    newIndex++;
+                }
+                if (newIndex === parent.childNodes.length) {
+                    parent.appendChild(parent.childNodes[oldIndex]);
+                } else if {
+                    parent.insertBefore(parent.childNodes[oldIndex], parent.childNodes[newIndex]);
+                }
+            }; break;
             case 'set': {
                 const value = path.pop();
                 const key = path.pop();
