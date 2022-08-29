@@ -358,8 +358,6 @@ def node_diff(old_node, new_node, path=()):
         old_index += 1
         index += 1
 
-    assert not waiting
-
     removes += len(old_nodes) - old_index
 
     while inserts:
@@ -371,8 +369,6 @@ def node_diff(old_node, new_node, path=()):
         yield (action, *path, index, clean_node(inserts.popleft()))
         index += 1
 
-    assert index == len(new_nodes)
-
     while removes:
-        yield ('remove', *path, len(new_nodes))
+        yield ('remove', *path, index)
         removes -= 1
