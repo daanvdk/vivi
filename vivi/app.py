@@ -1,5 +1,4 @@
 import asyncio
-from http.cookies import BaseCookie
 from itertools import islice
 import json
 from pathlib import Path

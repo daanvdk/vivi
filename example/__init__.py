@@ -111,7 +111,7 @@ def cookie(name):
     def unset(e):
         unset_cookie(name)
 
-    return fragment(
+    return h.div(
         h.h1(f'Cookie: {name}'),
         h.div('no value set' if value is None else f'current_value: {value}'),
         h.input(value=new_value, oninput=oninput),
