@@ -256,12 +256,6 @@ def node_diff(old_node, new_node, path=()):
             else:
                 index_mapping[new_index] = old_index
 
-    for new_index, old_index in index_mapping.items():
-        old_node = old_nodes[old_index]
-        new_node = new_nodes[new_index]
-        if old_node[0] != new_node[0]:
-            del index_mapping[new_index]
-
     old_str_indexes = defaultdict(deque)
 
     for old_index, node in enumerate(old_nodes):

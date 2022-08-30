@@ -176,7 +176,7 @@ class HTMLElement(Element):
     def _comp(self, elem):
         if elem == self:
             return EQUIVALENT
-        elif isinstance(elem, HTMLElement):
+        elif isinstance(elem, HTMLElement) and elem._tag == self._tag:
             return COMPATIBLE
         else:
             return INCOMPATIBLE
