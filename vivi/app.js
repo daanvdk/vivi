@@ -98,7 +98,7 @@ socket.addEventListener('message', function (event) {
                 }
                 if (newIndex === parent.childNodes.length) {
                     parent.appendChild(parent.childNodes[oldIndex]);
-                } else if {
+                } else {
                     parent.insertBefore(parent.childNodes[oldIndex], parent.childNodes[newIndex]);
                 }
             }; break;
