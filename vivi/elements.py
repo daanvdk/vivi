@@ -14,6 +14,9 @@ INDEX_KEY = object()
 class Element(ABC):
 
     def __init__(self, props, children):
+        if 'children' in props:
+            raise ValueError('\'children\' is not allowed as a property name')
+
         try:
             self._key = props.pop('key')
         except KeyError:
@@ -115,10 +118,18 @@ class Element(ABC):
         return state, result
 
     def __call__(self, *args, **kwargs):
-        if 'children' in kwargs:
-            raise ValueError('\'children\' is not allowed as a property name')
+        props = dict(self._props)
+        children = list(self._children)
 
-        return self._copy({**self._props, **kwargs}, (*self._children, *args))
+        for arg in args:
+            if isinstance(arg, dict):
+                props.update(arg)
+            else:
+                children.append(arg)
+
+        props.update(kwargs)
+
+        return self._copy(props, tuple(children))
 
 
 class Literal(Element):
@@ -156,10 +167,9 @@ class Literal(Element):
 class HTMLElement(Element):
 
     def __init__(self, tag, props, children):
-        if tag is None and props:
-            raise ValueError('fragment cannot have props')
-
         super().__init__(props, children)
+        if tag is None and self._props:
+            raise ValueError('fragment cannot have props')
         self._tag = tag
 
     def _copy(self, props, children):
@@ -334,6 +344,9 @@ class Component(Element):
 class HTMLFactory:
 
     def __getattr__(self, name):
+        return HTMLElement(name, {}, ())
+
+    def __getitem__(self, name):
         return HTMLElement(name, {}, ())
 
 
