@@ -259,8 +259,7 @@ class Vivi(Starlette):
                     event_type, *path, details = receive_fut.result()
                 except WebSocketDisconnect:
                     elem = _url_provider(self._elem, value=url)
-                    wrapped_result, _ = wrap(result, script, head)
-                    elem._unmount(state, wrapped_result)
+                    elem._unmount(state, result)
                     return
 
                 if event_type == 'pop_url':
