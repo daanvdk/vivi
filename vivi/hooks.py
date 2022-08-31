@@ -92,11 +92,27 @@ def use_replace_url():
     return _ctx.replace_url
 
 
-def use_future(fut, sentinel=None):
-    ref = use_ref(fut=None)
+def use_future(fut, sentinel=None, *, eager=False):
+    ref = use_ref(fut=None, eager=None)
 
     ref.path = tuple(_ctx.path)
     ref.rerender_path = _ctx.rerender_path
+
+    if hasattr(ref, '_vivi_cleanup'):
+        ref._vivi_cleanup()
+        del ref._vivi_cleanup
+
+    if fut is not None and not fut.done():
+        _ctx.static = False
+        if eager and _ctx.eager is not None:
+            ref.eager = _ctx.eager
+            ref.eager.add(fut)
+
+            def cleanup():
+                ref.eager.remove(ref.fut)
+                ref.eager = None
+
+            ref._vivi_cleanup = cleanup
 
     if fut is not ref.fut:
         ref.fut = fut

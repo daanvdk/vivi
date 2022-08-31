@@ -79,7 +79,7 @@ def wrap(result, script=None, prev_head=None):
     return result, original_head
 
 
-def mount(queue, elem, cookies, cookie_paths, url):
+def mount(queue, elem, cookies, cookie_paths, url, eager=None):
     contexts = {}
 
     def rerender_path(path):
@@ -101,7 +101,7 @@ def mount(queue, elem, cookies, cookie_paths, url):
     state, result = elem_with_url._init()
     static = True
 
-    def rerender(url, paths):
+    def rerender(url, paths, eager=None):
         nonlocal elem_with_url, state, result, static
 
         elem_with_url = _url_provider(elem, value=url)
@@ -117,6 +117,7 @@ def mount(queue, elem, cookies, cookie_paths, url):
         _ctx.cookie_paths = cookie_paths
         _ctx.rerender_paths = paths
         _ctx.path = []
+        _ctx.eager = eager
         try:
             state, result = elem_with_url._render(state, result)
             static = _ctx.static
@@ -132,6 +133,7 @@ def mount(queue, elem, cookies, cookie_paths, url):
             del _ctx.cookie_paths
             del _ctx.rerender_paths
             del _ctx.path
+            del _ctx.eager
 
         return result
 
@@ -139,7 +141,7 @@ def mount(queue, elem, cookies, cookie_paths, url):
         nonlocal elem_with_url, state, result
         elem_with_url._unmount(state, result)
 
-    result = rerender(url, Paths())
+    result = rerender(url, Paths(), eager)
     if static:
         unmount()
         return result, None, None
@@ -192,104 +194,20 @@ class Vivi(Starlette):
         url = request['path']
         cookies = request.cookies
         cookie_paths = {}
+
+        eager = set()
         result, rerender, unmount = mount(
             queue, self._elem, cookies, cookie_paths, url,
+            eager=eager,
         )
 
         if rerender is None:
             result, _ = wrap(result)
         else:
-            session_id = uuid4()
-            script = ('script', {}, {0: 0}, SafeText(
-                SCRIPT_BEFORE +
-                json.dumps(
-                    request.url_for('websocket', session_id=session_id)
-                ) +
-                SCRIPT_AFTER
-            ))
-            base_result = result
-            result, head = wrap(result, script)
+            async def next_render(eager=None):
+                nonlocal url
 
-            self._sessions[session_id] = (
-                queue,
-                cookies,
-                cookie_paths,
-                url,
-                script,
-                head,
-                base_result,
-                rerender,
-                unmount,
-            )
-
-            def session_timeout():
-                try:
-                    _, _, _, unmount = self._sessions.pop(session_id)
-                except KeyError:
-                    return
-                unmount()
-
-            loop = asyncio.get_running_loop()
-            loop.call_later(5, session_timeout)
-
-        return Response(
-            ''.join(node_parts(result)),
-            media_type='text/html',
-            headers={'connection': 'keep-alive'},
-        )
-
-    async def _websocket(self, socket):
-        loop = asyncio.get_running_loop()
-
-        session_id = socket.path_params['session_id']
-        try:
-            (
-                queue,
-                cookies,
-                cookie_paths,
-                url,
-                script,
-                head,
-                result,
-                rerender,
-                unmount,
-            ) = self._sessions.pop(session_id)
-        except KeyError:
-            await socket.close()
-            return
-
-        await socket.accept()
-
-        receive_fut = loop.create_task(socket.receive_json())
-        queue_fut = loop.create_task(queue.get())
-
-        while True:
-            await asyncio.wait(
-                [receive_fut, queue_fut],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            if receive_fut.done():
-                try:
-                    event_type, *path, details = receive_fut.result()
-                except WebSocketDisconnect:
-                    unmount()
-                    return
-
-                if event_type == 'pop_url':
-                    assert not path
-                    queue.put_nowait(('pop_url', details))
-                else:
-                    target = node_get(wrap(result, script)[0], path)
-                    handler = target[1][f'on{event_type}']
-
-                    event = SimpleNamespace(type=event_type, **details)
-                    loop.call_soon(handler, event)
-
-                receive_fut = loop.create_task(socket.receive_json())
-
-            elif queue_fut.done():
-                changes = [queue_fut.result()]
+                changes = [await queue.get()]
                 while not queue.empty():
                     changes.append(queue.get_nowait())
 
@@ -318,10 +236,108 @@ class Vivi(Starlette):
                     else:
                         raise ValueError(f'unknown change: {change[0]}')
 
-                old_result, _ = wrap(result, script)
-                result = rerender(url, paths)
-                new_result, head = wrap(result, script, head)
+                return actions, rerender(url, paths, eager)
 
+            init_actions = []
+            while eager:
+                actions, result = await next_render(eager)
+                init_actions.extend(actions)
+
+            session_id = uuid4()
+            script = ('script', {}, {0: 0}, SafeText(
+                SCRIPT_BEFORE +
+                json.dumps(
+                    request.url_for('websocket', session_id=session_id)
+                ) +
+                SCRIPT_AFTER
+            ))
+            base_result = result
+            result, head = wrap(result, script)
+
+            self._sessions[session_id] = (
+                queue,
+                script,
+                head,
+                base_result,
+                init_actions,
+                next_render,
+                unmount,
+            )
+
+            def session_timeout():
+                try:
+                    unmount = self._sessions.pop(session_id)[-1]
+                except KeyError:
+                    return
+                unmount()
+
+            loop = asyncio.get_running_loop()
+            loop.call_later(5, session_timeout)
+
+        return Response(
+            ''.join(node_parts(result)),
+            media_type='text/html',
+            headers={'connection': 'keep-alive'},
+        )
+
+    async def _websocket(self, socket):
+        loop = asyncio.get_running_loop()
+
+        session_id = socket.path_params['session_id']
+        try:
+            (
+                queue,
+                script,
+                head,
+                result,
+                init_actions,
+                next_render,
+                unmount,
+            ) = self._sessions.pop(session_id)
+        except KeyError:
+            await socket.close()
+            return
+
+        await socket.accept()
+
+        if init_actions:
+            await socket.send_text(json.dumps(
+                init_actions,
+                separators=(',', ':'),
+            ))
+
+        receive_fut = loop.create_task(socket.receive_json())
+        render_fut = loop.create_task(next_render())
+
+        while True:
+            await asyncio.wait(
+                [receive_fut, render_fut],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if receive_fut.done():
+                try:
+                    event_type, *path, details = receive_fut.result()
+                except WebSocketDisconnect:
+                    unmount()
+                    return
+
+                if event_type == 'pop_url':
+                    assert not path
+                    queue.put_nowait(('pop_url', details))
+                else:
+                    target = node_get(wrap(result, script)[0], path)
+                    handler = target[1][f'on{event_type}']
+
+                    event = SimpleNamespace(type=event_type, **details)
+                    loop.call_soon(handler, event)
+
+                receive_fut = loop.create_task(socket.receive_json())
+
+            elif render_fut.done():
+                old_result, _ = wrap(result, script)
+                actions, result = render_fut.result()
+                new_result, head = wrap(result, script, head)
                 actions.extend(node_diff(old_result, new_result))
 
                 if actions:
@@ -330,4 +346,4 @@ class Vivi(Starlette):
                         separators=(',', ':'),
                     ))
 
-                queue_fut = loop.create_task(queue.get())
+                render_fut = loop.create_task(next_render())
