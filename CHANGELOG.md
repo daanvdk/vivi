@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a new way of using the tag helper `vivi.elements.h` to create html
   elements, namely `h['example-tag']`. This is mainly useful for creating tags
   that are not valid python identifiers.
+- Added a new parameter `eager` to `vivi.hooks.use_future`, this parameter
+  makes the initial response wait on the rerender from this future when true.
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
