@@ -79,6 +79,74 @@ def wrap(result, script=None, prev_head=None):
     return result, original_head
 
 
+def mount(queue, elem, cookies, cookie_paths, url):
+    contexts = {}
+
+    def rerender_path(path):
+        queue.put_nowait(('path', path))
+
+    def push_url(url):
+        queue.put_nowait(('push_url', url))
+
+    def replace_url(url):
+        queue.put_nowait(('replace_url', url))
+
+    def set_cookie(key, value):
+        queue.put_nowait(('set_cookie', key, value))
+
+    def unset_cookie(key):
+        queue.put_nowait(('unset_cookie', key))
+
+    elem_with_url = _url_provider(elem, value=url)
+    state, result = elem_with_url._init()
+    static = True
+
+    def rerender(url, paths):
+        nonlocal elem_with_url, state, result, static
+
+        elem_with_url = _url_provider(elem, value=url)
+
+        _ctx.static = True
+        _ctx.rerender_path = rerender_path
+        _ctx.push_url = push_url
+        _ctx.replace_url = replace_url
+        _ctx.set_cookie = set_cookie
+        _ctx.unset_cookie = unset_cookie
+        _ctx.contexts = contexts
+        _ctx.cookies = cookies
+        _ctx.cookie_paths = cookie_paths
+        _ctx.rerender_paths = paths
+        _ctx.path = []
+        try:
+            state, result = elem_with_url._render(state, result)
+            static = _ctx.static
+        finally:
+            del _ctx.static
+            del _ctx.rerender_path
+            del _ctx.push_url
+            del _ctx.replace_url
+            del _ctx.set_cookie
+            del _ctx.unset_cookie
+            del _ctx.contexts
+            del _ctx.cookies
+            del _ctx.cookie_paths
+            del _ctx.rerender_paths
+            del _ctx.path
+
+        return result
+
+    def unmount():
+        nonlocal elem_with_url, state, result
+        elem_with_url._unmount(state, result)
+
+    result = rerender(url, Paths())
+    if static:
+        unmount()
+        return result, None, None
+    else:
+        return result, rerender, unmount
+
+
 class Vivi(Starlette):
 
     def __init__(
@@ -122,56 +190,13 @@ class Vivi(Starlette):
     async def _http(self, request):
         queue = asyncio.Queue()
         url = request['path']
-        contexts = {}
         cookies = request.cookies
         cookie_paths = {}
+        result, rerender, unmount = mount(
+            queue, self._elem, cookies, cookie_paths, url,
+        )
 
-        def rerender_path(path):
-            queue.put_nowait(('path', path))
-
-        def push_url(url):
-            queue.put_nowait(('push_url', url))
-
-        def replace_url(url):
-            queue.put_nowait(('replace_url', url))
-
-        def set_cookie(key, value):
-            queue.put_nowait(('set_cookie', key, value))
-
-        def unset_cookie(key):
-            queue.put_nowait(('unset_cookie', key))
-
-        elem = _url_provider(self._elem, value=url)
-
-        _ctx.static = True
-        _ctx.rerender_path = rerender_path
-        _ctx.push_url = push_url
-        _ctx.replace_url = replace_url
-        _ctx.set_cookie = set_cookie
-        _ctx.unset_cookie = unset_cookie
-        _ctx.contexts = contexts
-        _ctx.cookies = cookies
-        _ctx.cookie_paths = cookie_paths
-        _ctx.rerender_paths = Paths()
-        _ctx.path = []
-        try:
-            state, result = elem._render(*elem._init())
-            static = _ctx.static
-        finally:
-            del _ctx.static
-            del _ctx.rerender_path
-            del _ctx.push_url
-            del _ctx.replace_url
-            del _ctx.set_cookie
-            del _ctx.unset_cookie
-            del _ctx.contexts
-            del _ctx.cookies
-            del _ctx.cookie_paths
-            del _ctx.rerender_paths
-            del _ctx.path
-
-        if static:
-            self._elem._unmount(state, result)
+        if rerender is None:
             result, _ = wrap(result)
         else:
             session_id = uuid4()
@@ -186,28 +211,23 @@ class Vivi(Starlette):
             result, head = wrap(result, script)
 
             self._sessions[session_id] = (
-                state,
-                base_result,
-                head,
-                script,
                 queue,
-                rerender_path,
-                push_url,
-                replace_url,
-                set_cookie,
-                unset_cookie,
-                url,
-                contexts,
                 cookies,
                 cookie_paths,
+                url,
+                script,
+                head,
+                base_result,
+                rerender,
+                unmount,
             )
 
             def session_timeout():
                 try:
-                    state, result, *_ = self._sessions.pop(session_id)
+                    _, _, _, unmount = self._sessions.pop(session_id)
                 except KeyError:
                     return
-                elem._unmount(state, result)
+                unmount()
 
             loop = asyncio.get_running_loop()
             loop.call_later(5, session_timeout)
@@ -224,20 +244,15 @@ class Vivi(Starlette):
         session_id = socket.path_params['session_id']
         try:
             (
-                state,
-                result,
-                head,
-                script,
                 queue,
-                rerender_path,
-                push_url,
-                replace_url,
-                set_cookie,
-                unset_cookie,
-                url,
-                contexts,
                 cookies,
                 cookie_paths,
+                url,
+                script,
+                head,
+                result,
+                rerender,
+                unmount,
             ) = self._sessions.pop(session_id)
         except KeyError:
             await socket.close()
@@ -258,8 +273,7 @@ class Vivi(Starlette):
                 try:
                     event_type, *path, details = receive_fut.result()
                 except WebSocketDisconnect:
-                    elem = _url_provider(self._elem, value=url)
-                    elem._unmount(state, result)
+                    unmount()
                     return
 
                 if event_type == 'pop_url':
@@ -305,35 +319,7 @@ class Vivi(Starlette):
                         raise ValueError(f'unknown change: {change[0]}')
 
                 old_result, _ = wrap(result, script)
-
-                elem = _url_provider(self._elem, value=url)
-
-                _ctx.static = False
-                _ctx.rerender_path = rerender_path
-                _ctx.push_url = push_url
-                _ctx.replace_url = replace_url
-                _ctx.set_cookie = set_cookie
-                _ctx.unset_cookie = unset_cookie
-                _ctx.contexts = contexts
-                _ctx.cookies = cookies
-                _ctx.cookie_paths = cookie_paths
-                _ctx.rerender_paths = paths
-                _ctx.path = []
-                try:
-                    state, result = elem._render(state, result)
-                finally:
-                    del _ctx.static
-                    del _ctx.rerender_path
-                    del _ctx.push_url
-                    del _ctx.replace_url
-                    del _ctx.set_cookie
-                    del _ctx.unset_cookie
-                    del _ctx.contexts
-                    del _ctx.cookies
-                    del _ctx.cookie_paths
-                    del _ctx.rerender_paths
-                    del _ctx.path
-
+                result = rerender(url, paths)
                 new_result, head = wrap(result, script, head)
 
                 actions.extend(node_diff(old_result, new_result))

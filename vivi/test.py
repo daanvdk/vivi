@@ -4,7 +4,7 @@ import html
 import json
 from types import SimpleNamespace
 
-from .hooks import _ctx, _url_provider
+from .app import mount
 from .paths import Paths
 from .node import node_flatten, SafeText
 
@@ -669,7 +669,6 @@ class TestSession(Assertion):
         self._cookies = cookies.copy()
         self._timeout = timeout
         self._elem = elem
-        self._state, self._result = _url_provider(elem, value=url)._init()
         self._subscribers = set()
 
     def start(self, loop=None):
@@ -698,94 +697,59 @@ class TestSession(Assertion):
         self._queue = asyncio.Queue()
         self._change = asyncio.Event()
 
-        contexts = {}
         cookie_paths = {}
 
-        def rerender_path(path):
-            self._queue.put_nowait(('path', path))
+        self._result, rerender, unmount = mount(
+            self._queue, self._elem, self._cookies, cookie_paths, self._url,
+        )
 
-        def push_url(url):
-            self._queue.put_nowait(('push_url', url))
+        if rerender is None:
+            return
 
-        def replace_url(url):
-            self._queue.put_nowait(('replace_url', url))
+        try:
+            while True:
+                changes = [await self._queue.get()]
+                while not self._queue.empty():
+                    changes.append(self._queue.get_nowait())
 
-        def set_cookie(key, value):
-            self._queue.put_nowait(('set_cookie', key, value))
-
-        def unset_cookie(key):
-            self._queue.put_nowait(('unset_cookie', key))
-
-        paths = Paths()
-
-        while True:
-            _ctx.static = False
-            _ctx.rerender_path = rerender_path
-            _ctx.push_url = push_url
-            _ctx.replace_url = replace_url
-            _ctx.set_cookie = set_cookie
-            _ctx.unset_cookie = unset_cookie
-            _ctx.contexts = contexts
-            _ctx.cookies = self._cookies
-            _ctx.cookie_paths = cookie_paths
-            _ctx.rerender_paths = paths
-            _ctx.path = []
-            try:
-                self._state, self._result = (
-                    _url_provider(self._elem, value=self._url)
-                    ._render(self._state, self._result)
-                )
-            finally:
-                del _ctx.static
-                del _ctx.rerender_path
-                del _ctx.push_url
-                del _ctx.replace_url
-                del _ctx.set_cookie
-                del _ctx.unset_cookie
-                del _ctx.contexts
-                del _ctx.cookies
-                del _ctx.cookie_paths
-                del _ctx.rerender_paths
-                del _ctx.path
-
-            self._change.set()
-            self._change.clear()
-            for callback in self._subscribers:
-                callback()
-
-            changes = [await self._queue.get()]
-            while not self._queue.empty():
-                changes.append(self._queue.get_nowait())
-
-            paths = Paths()
-            for change in changes:
-                if change[0] == 'path':
-                    _, path = change
-                    paths[path] = None
-                elif change[0] == 'prev_url':
-                    self._next.append(self._url)
-                    self._url = self._prev.pop()
-                elif change[0] == 'next_url':
-                    self._prev.append(self._url)
-                    self._url = self._next.pop()
-                elif change[0] in 'push_url':
-                    self._prev.append(self._url)
-                    _, self._url = change
-                    self._next.clear()
-                elif change[0] in 'replace_url':
-                    _, self._url = change
-                elif change[0] == 'set_cookie':
-                    _, key, value = change
-                    self._cookies[key] = value
-                    for path in cookie_paths.get(key, []):
+                paths = Paths()
+                for change in changes:
+                    if change[0] == 'path':
+                        _, path = change
                         paths[path] = None
-                elif change[0] == 'unset_cookie':
-                    _, key = change
-                    del self._cookies[key]
-                    for path in cookie_paths.get(key, []):
-                        paths[path] = None
-                else:
-                    raise ValueError(f'unknown change: {change[0]}')
+                    elif change[0] == 'prev_url':
+                        self._next.append(self._url)
+                        self._url = self._prev.pop()
+                    elif change[0] == 'next_url':
+                        self._prev.append(self._url)
+                        self._url = self._next.pop()
+                    elif change[0] in 'push_url':
+                        self._prev.append(self._url)
+                        _, self._url = change
+                        self._next.clear()
+                    elif change[0] in 'replace_url':
+                        _, self._url = change
+                    elif change[0] == 'set_cookie':
+                        _, key, value = change
+                        self._cookies[key] = value
+                        for path in cookie_paths.get(key, []):
+                            paths[path] = None
+                    elif change[0] == 'unset_cookie':
+                        _, key = change
+                        del self._cookies[key]
+                        for path in cookie_paths.get(key, []):
+                            paths[path] = None
+                    else:
+                        raise ValueError(f'unknown change: {change[0]}')
+
+                self._result = rerender(self._url, paths)
+
+                self._change.set()
+                self._change.clear()
+                for callback in self._subscribers:
+                    callback()
+        finally:
+            unmount()
 
     def prev(self):
         self._queue.put_nowait(('prev_url',))
