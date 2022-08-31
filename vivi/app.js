@@ -1,22 +1,42 @@
-function getNode(path) {
-    let node = document;
+function createTree(node) {
+    return { node, children: Array.from(node.childNodes).map(createTree) };
+}
+let domTree = null;
+window.addEventListener('load', () => domTree = createTree(document));
+
+function getTree(path) {
+    let tree = domTree;
     for (const index of path) {
-        node = node.childNodes[index];
+        tree = tree.children[index];
     }
-    return node;
+    return tree;
+}
+
+function getNode(path) {
+    return getTree(path).node;
 }
 
 function getPath(node) {
-    if (node.parentNode === null) {
-        return [];
+    const nodes = [];
+    while (node.parentNode !== null) {
+        nodes.push(node);
+        node = node.parentNode;
     }
-    const path = getPath(node.parentNode);
-    for (let i = 0; i < node.parentNode.childNodes.length; i++) {
-        if (node === node.parentNode.childNodes[i]) {
-            path.push(i);
-            return path;
-        }
+
+    if (node !== document) {
+        throw new Error('node not in dom');
     }
+
+    let tree = domTree;
+    const path = [];
+    while (nodes.length > 0) {
+        const node = nodes.pop();
+        const index = tree.children.findIndex((tree) => tree.node === node);
+        tree = tree.children[index];
+        path.push(index);
+    }
+
+    return path;
 }
 
 function createNode(data) {
@@ -69,38 +89,42 @@ socket.addEventListener('message', function (event) {
             case 'insert': {
                 const node = createNode(path.pop());
                 const index = path.pop();
-                const parent = getNode(path);
-                if (index === parent.childNodes.length) {
-                    parent.appendChild(node);
+                const parent = getTree(path);
+                if (index === parent.children.length) {
+                    parent.node.appendChild(node);
+                    parent.children.push(createTree(node));
                 } else {
-                    parent.insertBefore(node, parent.childNodes[index]);
+                    parent.node.insertBefore(node, parent.children[index].node);
+                    parent.children.splice(index, 0, createTree(node));
                 }
             }; break;
             case 'remove': {
                 const index = path.pop();
-                const parent = getNode(path);
-                parent.removeChild(parent.childNodes[index]);
+                const parent = getTree(path);
+                parent.node.removeChild(parent.children[index].node);
+                parent.children.splice(index, 1);
             }; break;
             case 'replace': {
                 const node = createNode(path.pop());
                 const index = path.pop();
-                const parent = getNode(path);
-                parent.replaceChild(node, parent.childNodes[index]);
+                const parent = getTree(path);
+                parent.node.replaceChild(node, parent.children[index].node);
+                parent.children[index] = createTree(node);
             }; break;
             case 'move': {
                 let newIndex = path.pop();
                 const oldIndex = path.pop();
-                const parent = getNode(path);
+                const parent = getTree(path);
                 if (oldIndex === newIndex) {
                     break;
-                } else if (oldIndex < newIndex) {
-                    newIndex++;
                 }
-                if (newIndex === parent.childNodes.length) {
-                    parent.appendChild(parent.childNodes[oldIndex]);
+                const [tree] = parent.children.splice(oldIndex, 1);
+                if (newIndex === parent.children.length) {
+                    parent.node.appendChild(tree.node);
                 } else {
-                    parent.insertBefore(parent.childNodes[oldIndex], parent.childNodes[newIndex]);
+                    parent.node.insertBefore(tree.node, parent.children[newIndex].node);
                 }
+                parent.children.splice(newIndex, 0, tree);
             }; break;
             case 'set': {
                 const value = path.pop();
