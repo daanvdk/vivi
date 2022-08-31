@@ -319,6 +319,7 @@ class Vivi(Starlette):
                 try:
                     event_type, *path, details = receive_fut.result()
                 except WebSocketDisconnect:
+                    render_fut.cancel()
                     unmount()
                     return
 
