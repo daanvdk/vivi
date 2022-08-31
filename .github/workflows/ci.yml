@@ -7,28 +7,38 @@ jobs:
       - uses: actions/checkout@v3
 
       - uses: actions/setup-python@v4
+        id: setup-python
         with:
           python-version: 3.9
+
+      - name: Cache local
+        uses: actions/cache@v3
+        id: cache-local
+        with:
+          path: ~/.local
+          key: local-${{runner.os}}-${{steps.setup-python.outputs.python-version}}
 
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
           version: 1.1.13
-          virtualenvs-in-project: false
-          virtualenvs-path: ~/.virtualenvs
+          virtualenvs-in-project: true
 
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v1
-        id: cache
+      - name: Cache venv
+        uses: actions/cache@v3
+        id: cache-venv
         with:
-          path: ~/.virtualenvs
-          key: poetry-${{ hashFiles('**/poetry.lock') }}
-          restore-keys: |
-            poetry-${{ hashFiles('**/poetry.lock') }}
+          path: .venv
+          key: venv-${{runner.os}}-${{steps.setup-python.outputs.python-version}}-${{hashFiles('**/poetry.lock')}}
 
       - name: Install Dependencies
-        run: poetry install
-        if: steps.cache.outputs.cache-hit != 'true'
+        run: poetry install --no-interaction --no-root
+        if: steps.cache-venv.outputs.cache-hit != 'true'
 
-      - name: Test with pytest
-        run: poetry run pytest
+      - name: Test
+        run: poetry run pytest --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          fail_ci_if_error: true
