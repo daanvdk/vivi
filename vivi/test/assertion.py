@@ -1,12 +1,10 @@
 import asyncio
-from contextlib import contextmanager
 import html
 import json
 from types import SimpleNamespace
 
-from .app import mount
-from .paths import Paths
-from .node import node_flatten, SafeText
+from ..html import html_flatten, SafeText
+from ..node import Node
 
 
 WORD_INIT_CHARS = frozenset(
@@ -190,22 +188,29 @@ def _parse_filter(filter):
 def _children(node, *, deep=False):
     stack = []
 
-    if isinstance(node[-1], tuple):
-        stack.append((node, node_flatten((None, {}, {}, *node[-1][3:]))))
+    parents, node = node
+
+    if isinstance(node, tuple):
+        stack.append((
+            parents, node,
+            enumerate(html_flatten((None, {}, {}, *node[3:]))),
+        ))
 
     while stack:
-        path, nodes = stack[-1]
+        parents, node, children = stack[-1]
         try:
-            node = next(nodes)
+            index, child = next(children)
         except StopIteration:
             stack.pop()
             continue
 
-        node = (*path, node)
-        yield node
+        yield (*parents, (node, index)), child
 
-        if deep and isinstance(node[-1], tuple):
-            stack.append((node, node_flatten((None, {}, {}, *node[-1][3:]))))
+        if deep and isinstance(child, tuple):
+            stack.append((
+                (*parents, (node, index)), child,
+                enumerate(html_flatten((None, {}, {}, *child[3:]))),
+            ))
 
 
 def _find(nodes, filter):
@@ -220,30 +225,30 @@ def _find(nodes, filter):
             if predicate[0] == 'tag':
                 _, tag = predicate
                 nodes = [node for node in nodes if (
-                    isinstance(node[-1], tuple) and
-                    node[-1][0] == tag
+                    isinstance(node[1], tuple) and
+                    node[1][0] == tag
                 )]
 
             elif predicate[0] == 'prop':
                 _, key, value = predicate
                 nodes = [node for node in nodes if (
-                    isinstance(node[-1], tuple) and
-                    key in node[-1][1] and
-                    node[-1][1][key] == value
+                    isinstance(node[1], tuple) and
+                    key in node[1][1] and
+                    node[1][1][key] == value
                 )]
 
             elif predicate[0] == 'has_prop':
                 _, key = predicate
                 nodes = [node for node in nodes if (
-                    isinstance(node[-1], tuple) and
-                    key not in node[-1][1]
+                    isinstance(node[1], tuple) and
+                    key not in node[1][1]
                 )]
 
             elif predicate[0] == 'class':
                 _, classname = predicate
                 nodes = [node for node in nodes if (
-                    isinstance(node[-1], tuple) and
-                    classname in node[-1][1].get('class', '').split()
+                    isinstance(node[1], tuple) and
+                    classname in node[1][1].get('class', '').split()
                 )]
 
             elif predicate[0] == 'selector':
@@ -306,17 +311,17 @@ def _text(nodes):
 
     for node in nodes:
         for child in _children(node, deep=True):
-            if isinstance(child[-1], str):
+            if isinstance(child[1], str):
                 if safe:
-                    parts.append(html.escape(child[-1]))
+                    parts.append(html.escape(child[1]))
                 else:
-                    parts.append(child[-1])
+                    parts.append(child[1])
 
-            elif isinstance(child[-1], SafeText):
+            elif isinstance(child[1], SafeText):
                 if not safe:
                     parts = [html.escape(part) for part in parts]
                     safe = True
-                parts.append(child[-1].text)
+                parts.append(child[1].text)
 
     text = ''.join(parts)
     if safe:
@@ -338,7 +343,7 @@ class Assertion:
         if not actions or actions[-1][0] == 'find':
             actions = (*actions, ('exists',))
 
-        nodes = [(self._session._result,)]
+        nodes = [((), self._session._result)]
         for action in actions:
             if action[0] == 'find':
                 _, filters = action
@@ -347,11 +352,12 @@ class Assertion:
                     for filter in filters
                     for node in _find(nodes, filter)
                 ]
+
             elif action[0] == 'parent':
                 nodes = [
-                    node[:-1]
-                    for node in nodes
-                    if len(node) > 1
+                    (parents[:-1], parents[-1][0])
+                    for parents, node in nodes
+                    if parents
                 ]
 
             elif action[0] == 'exists':
@@ -377,13 +383,12 @@ class Assertion:
                 _, key = action
 
                 try:
-                    path, = nodes
+                    (_, node), = nodes
                 except ValueError:
                     if nodes:
                         return 'cannot check props of multiple nodes'
                     else:
                         return 'no node to check props of'
-                node = path[-1]
 
                 if not isinstance(node, tuple) or key not in node[1]:
                     return f'node does not have prop {key}'
@@ -392,13 +397,12 @@ class Assertion:
                 _, key = action
 
                 try:
-                    path, = nodes
+                    (_, node), = nodes
                 except ValueError:
                     if nodes:
                         return 'cannot check props of multiple nodes'
                     else:
                         return 'no node to check props of'
-                node = path[-1]
 
                 if isinstance(node, tuple) and key in node[1]:
                     return f'node does have prop {key}'
@@ -407,13 +411,12 @@ class Assertion:
                 _, key, expected = action
 
                 try:
-                    path, = nodes
+                    (_, node), = nodes
                 except ValueError:
                     if nodes:
                         return 'cannot check props of multiple nodes'
                     else:
                         return 'no node to check props of'
-                node = path[-1]
 
                 try:
                     assert isinstance(node, tuple)
@@ -431,13 +434,12 @@ class Assertion:
                 _, key, expected = action
 
                 try:
-                    path, = nodes
+                    (_, node), = nodes
                 except ValueError:
                     if nodes:
                         return 'cannot check props of multiple nodes'
                     else:
                         return 'no node to check props of'
-                node = path[-1]
 
                 try:
                     assert isinstance(node, tuple)
@@ -501,60 +503,59 @@ class Assertion:
                     return f'session has url {expected!r}'
 
             elif action[0] == 'click':
-                try:
-                    path, = nodes
-                except ValueError:
-                    if nodes:
-                        return 'cannot click multiple nodes'
-                    else:
-                        return 'no node to click'
-                node = path[-1]
-
-                if (
-                    not isinstance(node, tuple) or
-                    'onclick' not in node[1] or
-                    not callable(node[1]['onclick'])
-                ):
-                    return 'node is not clickable'
-
-                loop = asyncio.get_running_loop()
-                event = SimpleNamespace(type='click')
-                loop.call_soon(node[1]['onclick'], event)
+                reason = self._event(nodes, 'click')
+                if reason is not None:
+                    return reason
 
             elif action[0] == 'input':
                 _, value = action
-
-                try:
-                    path, = nodes
-                except ValueError:
-                    if nodes:
-                        return 'cannot input on multiple nodes'
-                    else:
-                        return 'no node to click'
-                node = path[-1]
-
-                if (
-                    not isinstance(node, tuple) or
-                    'oninput' not in node[1] or
-                    not callable(node[1]['oninput'])
-                ):
-                    return 'node does not accept input'
-
-                loop = asyncio.get_running_loop()
-                event = SimpleNamespace(type='input', value=value)
-                loop.call_soon(node[1]['oninput'], event)
+                reason = self._event(nodes, 'input', value=value)
+                if reason is not None:
+                    return reason
 
             else:
                 raise ValueError(f'unknown action: {action[0]}')
 
         return None
 
+    def _event(self, nodes, event_type, **details):
+        try:
+            (parents, node), = nodes
+        except ValueError:
+            if nodes:
+                return f'cannot {event_type} on multiple nodes'
+            else:
+                return f'no node to {event_type}'
+
+        node = Node(
+            parents, node,
+            self._session._queue, self._session._subscriptions,
+        )
+
+        try:
+            handler = node[f'on{event_type}']
+            assert callable(handler)
+        except (ValueError, KeyError, AssertionError):
+            return f'node is not {event_type}able'
+
+        loop = asyncio.get_running_loop()
+        loop.call_soon(handler, SimpleNamespace(
+            type=event_type,
+            target=node,
+            **details,
+        ))
+
     async def _aholds(self, timeout):
         loop = asyncio.get_running_loop()
 
         timeout_fut = loop.create_task(asyncio.sleep(timeout))
         while True:
-            reason = self._holds()
+            try:
+                reason = self._holds()
+            except Exception:
+                timeout_fut.cancel()
+                raise
+
             if reason is None:
                 timeout_fut.cancel()
                 return None
@@ -654,141 +655,3 @@ class Assertion:
 
     def input(self, value):
         return Assertion(self._session, (*self._actions, ('input', value)))
-
-
-class TestSession(Assertion):
-
-    __test__ = False
-
-    def __init__(self, elem, *, url='/', cookies={}, timeout=3):
-        super().__init__(self, ())
-
-        self._url = url
-        self._prev = []
-        self._next = []
-        self._cookies = cookies.copy()
-        self._timeout = timeout
-        self._elem = elem
-        self._subscribers = set()
-
-    def start(self, loop=None):
-        if loop is None:
-            loop = asyncio.new_event_loop()
-
-        self._loop = loop
-        self._run_task = loop.create_task(self._run())
-        self._update()
-
-    def stop(self):
-        self._run_task.cancel()
-        self._loop.close()
-
-        del self._loop
-        del self._run_task
-
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, *exc):
-        self.stop()
-
-    async def _run(self):
-        self._queue = asyncio.Queue()
-        self._change = asyncio.Event()
-
-        cookie_paths = {}
-
-        self._result, rerender, unmount = mount(
-            self._queue, self._elem, self._cookies, cookie_paths, self._url,
-        )
-
-        if rerender is None:
-            return
-
-        try:
-            while True:
-                changes = [await self._queue.get()]
-                while not self._queue.empty():
-                    changes.append(self._queue.get_nowait())
-
-                paths = Paths()
-                for change in changes:
-                    if change[0] == 'path':
-                        _, path = change
-                        paths[path] = None
-                    elif change[0] == 'prev_url':
-                        self._next.append(self._url)
-                        self._url = self._prev.pop()
-                    elif change[0] == 'next_url':
-                        self._prev.append(self._url)
-                        self._url = self._next.pop()
-                    elif change[0] in 'push_url':
-                        self._prev.append(self._url)
-                        _, self._url = change
-                        self._next.clear()
-                    elif change[0] in 'replace_url':
-                        _, self._url = change
-                    elif change[0] == 'set_cookie':
-                        _, key, value = change
-                        self._cookies[key] = value
-                        for path in cookie_paths.get(key, []):
-                            paths[path] = None
-                    elif change[0] == 'unset_cookie':
-                        _, key = change
-                        del self._cookies[key]
-                        for path in cookie_paths.get(key, []):
-                            paths[path] = None
-                    else:
-                        raise ValueError(f'unknown change: {change[0]}')
-
-                self._result = rerender(self._url, paths)
-
-                self._change.set()
-                self._change.clear()
-                for callback in self._subscribers:
-                    callback()
-        finally:
-            unmount()
-
-    def prev(self):
-        self._queue.put_nowait(('prev_url',))
-        self._update()
-
-    def next(self):
-        self._queue.put_nowait(('next_url',))
-        self._update()
-
-    def _update(self):
-        asyncio.set_event_loop(self._loop)
-        while self._loop._ready:
-            self._loop.stop()
-            self._loop.run_forever()
-
-
-@contextmanager
-def run_together(self, *sessions, loop=None):
-    if loop is None:
-        loop = asyncio.new_event_loop()
-        loop_owner = True
-    else:
-        loop_owner = False
-
-    for session in sessions:
-        session._loop = loop
-        session._run_task = loop.create_task(session._run())
-
-    try:
-        asyncio.set_event_loop(loop)
-        while loop._ready:
-            loop.stop()
-            loop.run_forever()
-
-        yield sessions
-    finally:
-        for session in reversed(sessions):
-            session._run_task.cancel()
-            del session._loop
-            del session._run_task
-        if loop_owner:
-            loop.close()

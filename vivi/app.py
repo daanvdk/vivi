@@ -12,8 +12,9 @@ from starlette.responses import Response
 from starlette.websockets import WebSocketDisconnect
 
 from .hooks import _ctx, _url_provider
-from .node import SafeText, node_get, node_parts, node_diff
+from .html import SafeText, html_parts, html_diff
 from .paths import Paths
+from .node import Node
 
 
 DOCTYPE = SafeText('<!doctype html>')
@@ -275,7 +276,7 @@ class Vivi(Starlette):
             loop.call_later(5, session_timeout)
 
         return Response(
-            ''.join(node_parts(result)),
+            ''.join(html_parts(result)),
             media_type='text/html',
             headers={'connection': 'keep-alive'},
         )
@@ -308,6 +309,7 @@ class Vivi(Starlette):
 
         receive_fut = loop.create_task(socket.receive_json())
         render_fut = loop.create_task(next_render())
+        subscriptions = set()
 
         while True:
             await asyncio.wait(
@@ -327,19 +329,28 @@ class Vivi(Starlette):
                     assert not path
                     queue.put_nowait(('pop_url', details))
                 else:
-                    target = node_get(wrap(result, script)[0], path)
-                    handler = target[1][f'on{event_type}']
-
-                    event = SimpleNamespace(type=event_type, **details)
-                    loop.call_soon(handler, event)
+                    wrapped_result, _ = wrap(result, script, head)
+                    node = Node.from_path(
+                        wrapped_result, path, queue, subscriptions,
+                    )
+                    handler = node[f'on{event_type}']
+                    loop.call_soon(handler, SimpleNamespace(
+                        type=event_type,
+                        target=node,
+                        **details,
+                    ))
 
                 receive_fut = loop.create_task(socket.receive_json())
 
             elif render_fut.done():
                 old_result, _ = wrap(result, script)
+
                 actions, result = render_fut.result()
+                for callback in list(subscriptions):
+                    callback(result)
+
                 new_result, head = wrap(result, script, head)
-                actions.extend(node_diff(old_result, new_result))
+                actions.extend(html_diff(old_result, new_result))
 
                 if actions:
                     await socket.send_text(json.dumps(

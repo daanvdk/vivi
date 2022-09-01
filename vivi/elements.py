@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 from .hooks import _ctx
-from .node import SafeText
+from .html import SafeText
 
 
 INCOMPATIBLE = object()
