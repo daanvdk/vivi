@@ -562,9 +562,22 @@ class Assertion:
 
             change_fut = loop.create_task(self._session._change.wait())
             await asyncio.wait(
-                [change_fut, timeout_fut],
+                [change_fut, timeout_fut, self._session._run_fut],
                 return_when=asyncio.FIRST_COMPLETED,
             )
+
+            if self._session._run_fut.done():
+                if not timeout_fut.done():
+                    timeout_fut.cancel()
+                if not change_fut.done():
+                    change_fut.cancel()
+                try:
+                    self._session._run_fut.result()
+                except Exception:
+                    raise
+                else:
+                    return reason
+
             if timeout_fut.done():
                 if not change_fut.done():
                     change_fut.cancel()

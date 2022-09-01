@@ -62,6 +62,9 @@ def clean_node(node):
 
     cleaned_props = {}
     for key, value in props.items():
+        if key == 'ref':
+            continue
+
         value = clean_value(value)
         if value is False:
             continue
@@ -71,37 +74,16 @@ def clean_node(node):
             value = json.dumps(value)
         cleaned_props[key] = value
 
-    cleaned_children = []
-    stack = [iter(children)]
-    while stack:
-        try:
-            child = next(stack[-1])
-        except StopIteration:
-            stack.pop()
-            continue
-
-        if isinstance(child, tuple) and child[0] is None:
-            stack.append(islice(child, 3, None))
-            continue
-
-        if child is None:
-            continue
-
-        child = clean_node(child)
-        if (
-            cleaned_children and
-            isinstance(child, str) and
-            isinstance(cleaned_children[-1], str)
-        ):
-            cleaned_children[-1] += child
-        else:
-            cleaned_children.append(child)
-
-    return (tag, cleaned_props, *cleaned_children)
+    return (
+        tag, cleaned_props,
+        *map(clean_node, html_flatten((None, {}, {}, *children))),
+    )
 
 
 def html_flatten(node):
     if not isinstance(node, tuple) or node[0] is not None:
+        if node is None:
+            return {}
         yield node
         return {(): 0}
 
@@ -179,23 +161,23 @@ def html_get(node, index):
 
 
 def html_parts(node):
-    if isinstance(node, SafeText):
-        yield node.text
-        return
+    for node in html_flatten(node):
+        if isinstance(node, SafeText):
+            yield node.text
+            continue
 
-    if isinstance(node, str):
-        yield html.escape(node, quote=False)
-        return
+        if isinstance(node, str):
+            yield html.escape(node, quote=False)
+            continue
 
-    if node is None:
-        return
+        tag, props, _, *children = node
 
-    tag, props, _, *children = node
-
-    if tag is not None:
         yield '<'
         yield tag
         for key, value in props.items():
+            if key == 'ref':
+                continue
+
             value = clean_value(value)
             if value is False:
                 continue
@@ -210,16 +192,14 @@ def html_parts(node):
             yield '"'
         yield '>'
 
-    for child in children:
-        yield from html_parts(child)
+        yield from html_parts((None, {}, {}, *children))
 
-    if tag is not None:
         yield '</'
         yield tag
         yield '>'
 
 
-def html_diff(old_node, new_node, path=()):
+def html_flatten_with_mapping(old_node, new_node):
     old_nodes_iter = html_flatten(old_node)
     old_nodes = []
     while True:
@@ -256,6 +236,14 @@ def html_diff(old_node, new_node, path=()):
                 pass
             else:
                 index_mapping[new_index] = old_index
+
+    return old_nodes, new_nodes, index_mapping
+
+
+def html_diff(old_node, new_node, path=()):
+    old_nodes, new_nodes, index_mapping = (
+        html_flatten_with_mapping(old_node, new_node)
+    )
 
     old_str_indexes = defaultdict(deque)
 
@@ -367,3 +355,37 @@ def html_diff(old_node, new_node, path=()):
     while removes:
         yield ('remove', *path, index)
         removes -= 1
+
+
+def html_refs(old_node, new_node, path=()):
+    if new_node is old_node:
+        return
+
+    old_nodes, new_nodes, index_mapping = (
+        html_flatten_with_mapping(old_node, new_node)
+    )
+
+    for new_index, new_node in enumerate(new_nodes):
+        try:
+            old_index = index_mapping[new_index]
+        except KeyError:
+            old_node = None
+        else:
+            old_node = old_nodes[old_index]
+
+        if new_node is not old_node and isinstance(new_node, tuple):
+            if old_node is None:
+                try:
+                    ref = new_node[1]['ref']
+                except KeyError:
+                    pass
+                else:
+                    yield (ref, (*path, new_index))
+
+            if isinstance(old_node, tuple):
+                old_node = (None, {}, *old_node[2:])
+            else:
+                old_node = None
+            new_node = (None, {}, *new_node[2:])
+
+            yield from html_refs(old_node, new_node, (*path, new_index))

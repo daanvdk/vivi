@@ -12,7 +12,7 @@ from starlette.responses import Response
 from starlette.websockets import WebSocketDisconnect
 
 from .hooks import _ctx, _url_provider
-from .html import SafeText, html_parts, html_diff
+from .html import SafeText, html_parts, html_diff, html_refs
 from .paths import Paths
 from .node import Node
 
@@ -192,6 +192,7 @@ class Vivi(Starlette):
 
     async def _http(self, request):
         queue = asyncio.Queue()
+        subscriptions = set()
         url = request['path']
         cookies = request.cookies
         cookie_paths = {}
@@ -235,7 +236,7 @@ class Vivi(Starlette):
                             paths[path] = None
                         actions.append(change)
                     else:
-                        raise ValueError(f'unknown change: {change[0]}')
+                        actions.append(change)
 
                 return actions, rerender(url, paths, eager)
 
@@ -257,6 +258,7 @@ class Vivi(Starlette):
 
             self._sessions[session_id] = (
                 queue,
+                subscriptions,
                 script,
                 head,
                 base_result,
@@ -274,6 +276,10 @@ class Vivi(Starlette):
 
             loop = asyncio.get_running_loop()
             loop.call_later(5, session_timeout)
+            for ref, path in html_refs(None, result):
+                loop.call_soon(ref, Node.from_path(
+                    result, path, queue, subscriptions,
+                ))
 
         return Response(
             ''.join(html_parts(result)),
@@ -288,6 +294,7 @@ class Vivi(Starlette):
         try:
             (
                 queue,
+                subscriptions,
                 script,
                 head,
                 result,
@@ -309,7 +316,6 @@ class Vivi(Starlette):
 
         receive_fut = loop.create_task(socket.receive_json())
         render_fut = loop.create_task(next_render())
-        subscriptions = set()
 
         while True:
             await asyncio.wait(
@@ -344,14 +350,17 @@ class Vivi(Starlette):
 
             elif render_fut.done():
                 old_result, _ = wrap(result, script)
-
                 actions, result = render_fut.result()
-                for callback in list(subscriptions):
-                    callback(result)
-
                 new_result, head = wrap(result, script, head)
-                actions.extend(html_diff(old_result, new_result))
 
+                for callback in list(subscriptions):
+                    callback(new_result)
+                for ref, path in html_refs(old_result, new_result):
+                    loop.call_soon(ref, Node.from_path(
+                        new_result, path, queue, subscriptions,
+                    ))
+
+                actions.extend(html_diff(old_result, new_result))
                 if actions:
                     await socket.send_text(json.dumps(
                         actions,

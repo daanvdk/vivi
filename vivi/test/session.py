@@ -3,6 +3,8 @@ from contextlib import contextmanager
 
 from ..app import mount
 from ..paths import Paths
+from ..html import html_refs
+from ..node import Node
 from .assertion import Assertion
 
 
@@ -26,17 +28,17 @@ class TestSession(Assertion):
             loop = asyncio.new_event_loop()
 
         self._loop = loop
-        self._run_task = loop.create_task(self._run())
+        self._run_fut = loop.create_task(self._run())
         self._update()
 
     def stop(self):
-        self._run_task.cancel()
+        self._run_fut.cancel()
         self._loop.stop()
         self._loop.run_forever()
         self._loop.close()
 
         del self._loop
-        del self._run_task
+        del self._run_fut
 
     def __enter__(self):
         self.start()
@@ -54,6 +56,10 @@ class TestSession(Assertion):
         self._result, rerender, unmount = mount(
             self._queue, self._elem, self._cookies, cookie_paths, self._url,
         )
+        for ref, path in html_refs(None, self._result):
+            self._loop.call_soon(ref, Node.from_path(
+                self._result, path, self._queue, self._subscriptions,
+            ))
 
         if rerender is None:
             return
@@ -91,12 +97,20 @@ class TestSession(Assertion):
                         del self._cookies[key]
                         for path in cookie_paths.get(key, []):
                             paths[path] = None
+                    elif change[0] == 'focus':
+                        pass
                     else:
                         raise ValueError(f'unknown change: {change[0]}')
 
+                old_result = self._result
                 self._result = rerender(self._url, paths)
+
                 for callback in list(self._subscriptions):
                     callback(self._result)
+                for ref, path in html_refs(old_result, self._result):
+                    self._loop.call_soon(ref, Node.from_path(
+                        self._result, path, self._queue, self._subscriptions,
+                    ))
 
                 self._change.set()
                 self._change.clear()
@@ -116,19 +130,17 @@ class TestSession(Assertion):
         while self._loop._ready:
             self._loop.stop()
             self._loop.run_forever()
+        if self._run_fut.done():
+            self._run_fut.result()
 
 
 @contextmanager
-def run_together(self, *sessions, loop=None):
-    if loop is None:
-        loop = asyncio.new_event_loop()
-        loop_owner = True
-    else:
-        loop_owner = False
+def run_together(self, *sessions):
+    loop = asyncio.new_event_loop()
 
     for session in sessions:
         session._loop = loop
-        session._run_task = loop.create_task(session._run())
+        session._run_fut = loop.create_task(session._run())
 
     try:
         asyncio.set_event_loop(loop)
@@ -139,8 +151,11 @@ def run_together(self, *sessions, loop=None):
         yield sessions
     finally:
         for session in reversed(sessions):
-            session._run_task.cancel()
+            if not session._run_fut.done():
+                session._run_fut.cancel()
             del session._loop
-            del session._run_task
-        if loop_owner:
-            loop.close()
+            del session._run_fut
+
+        loop.stop()
+        loop.run_forever()
+        loop.close()

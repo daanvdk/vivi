@@ -235,6 +235,9 @@ class HTMLElement(Element):
             prev_child_result = prev_result[prev_index + 3]
             prev_child._unmount(prev_child_state, prev_child_result)
 
+        if 'ref' in self._props:
+            _ctx.static = False
+
         result = (self._tag, self._props, child_prev_indexes, *child_results)
         return state, result
 

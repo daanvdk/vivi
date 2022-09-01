@@ -82,12 +82,14 @@ def test_counter():
                 ['set', 1, 1, 0, 1, 0, 'class', 'active'],
                 ['replace', 1, 1, 1, ['h1', {}, 'Greeter']],
                 ['replace', 1, 1, 2, ['input', {
-                    'autofocus': '',
                     'oninput': 'call(event, true, false, false)',
                     'value': '',
                 }]],
                 ['replace', 1, 1, 3, ['div', {}, 'Hello, !']],
                 ['remove', 1, 1, 4],
+            ]
+            assert socket.receive_json() == [
+                ['focus', 1, 1, 2],
             ]
             # Type world
             socket.send_json(["input", 1, 1, 2, {'value': 'World'}])

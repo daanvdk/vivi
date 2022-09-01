@@ -50,9 +50,13 @@ def greeter():
     def oninput(e):
         set_name(e.value)
 
+    @use_callback()
+    def ref(node):
+        node.focus()
+
     return fragment(
         h.h1('Greeter'),
-        h.input(autofocus=True, value=name, oninput=oninput),
+        h.input(value=name, oninput=oninput, ref=ref),
         h.div('Hello, ', name, '!'),
     )
 

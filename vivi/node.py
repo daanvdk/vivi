@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 import weakref
 
-from .html import SafeText, html_flatten, html_get
+from .html import SafeText, html_flatten, html_get, html_flatten_with_mapping
 
 
 class Subscription:
@@ -34,26 +34,32 @@ class Node(Mapping):
         parents = []
         node = result
 
-        parents = iter(self._parents)
-        for prev_node, prev_index in parents:
+        old_parents = iter(self._parents)
+        for prev_node, prev_index in old_parents:
             if node is prev_node:
-                index = prev_index
-            else:
-                try:
-                    index = next(
-                        index
-                        for index, prev_index_ in node[2].items()
-                        if prev_index_ == prev_index
-                    )
-                except StopIteration:
-                    self._parents = tuple(parents)
-                    self._subscriptions.remove(self._subscription)
-                    self._subscriptions = None
-                    self._subscription = None
-                    self._queue = None
-                    return
+                parents.append((prev_node, prev_index))
+                parents.extend(old_parents)
+                break
+
+            _, nodes, index_mapping = (
+                html_flatten_with_mapping(prev_node, node)
+            )
+            try:
+                index = next(
+                    index
+                    for index, prev_index_ in index_mapping.items()
+                    if prev_index_ == prev_index
+                )
+            except StopIteration:
+                self._parents = tuple(old_parents)
+                self._subscriptions.remove(self._subscription)
+                self._subscriptions = None
+                self._subscription = None
+                self._queue = None
+                return
+
             parents.append((node, index))
-            node = node[index + 3]
+            node = nodes[index]
 
         self._parents = tuple(parents)
         self._node = node
@@ -79,23 +85,41 @@ class Node(Mapping):
             raise ValueError('node has no parent') from None
         return Node(parents, node, self._subscriptions)
 
+    @property
+    def type(self):
+        if isinstance(self._node, (str, SafeText)):
+            return 'text'
+        elif isinstance(self._node, tuple):
+            if self._node[0] is None:
+                return 'document'
+            else:
+                return 'element'
+        else:
+            raise ValueError('unknown node type')
+
+    @property
+    def tag(self):
+        if self.type != 'element':
+            raise ValueError('node is not an element')
+        return self._node[0]
+
     def __getitem__(self, key):
-        if not isinstance(self._node, tuple):
+        if self.type != 'element':
             raise ValueError('node is not an element')
         return self._node[1][key]
 
     def __iter__(self, key):
-        if not isinstance(self._node, tuple):
+        if self.type != 'element':
             raise ValueError('node is not an element')
         return iter(self._node[1])
 
     def __len__(self, key):
-        if not isinstance(self._node, tuple):
+        if self.type != 'element':
             raise ValueError('node is not an element')
         return len(self._node[1])
 
     def children(self):
-        if not isinstance(self._node, tuple):
+        if self.type not in ('element', 'document'):
             raise ValueError('node is not an element')
         return (
             Node((*self._parents, (self._node, index)), node)
@@ -106,12 +130,12 @@ class Node(Mapping):
 
     @property
     def content(self):
-        if not isinstance(self._node, (str, SafeText)):
+        if self.type != 'text':
             raise ValueError('node is not text')
         return self._node
 
     def focus(self):
-        if not isinstance(self._node, tuple):
+        if self.type != 'element':
             raise ValueError('node is not an element')
         if self._queue is None:
             raise ValueError('node is detached from the DOM')
