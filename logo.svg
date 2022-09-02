@@ -1,0 +1,12 @@
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="128" height="128" viewBox="0 0 17 12" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#FF1090" d="
+        M0,0l3,12h2V0h-2v4l-1,-4Z
+        M6,0V2h2V0Z
+        M6,3V12h2V3Z
+        M9,0V12h2l3,-12h-2l-1,4V0Z
+        M15,0l-0.5,2h2l0.5,-2Z
+        M14.25,3l-2.25,9h2l2.25,-9Z
+    " />
+</svg>

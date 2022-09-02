@@ -1,7 +1,11 @@
-# Vivi
-![CI Status](https://img.shields.io/github/workflow/status/daanvdk/vivi/CI)
-[![Coverage](https://img.shields.io/codecov/c/gh/daanvdk/vivi)](https://codecov.io/gh/daanvdk/vivi)
-[![Version](https://img.shields.io/pypi/v/vivi)](https://pypi.org/project/vivi)
+<h1 align="center">
+    <img src="https://raw.githubusercontent.com/daanvdk/vivi/master/logo.svg" alt="Vivi" />
+</h1>
+<p align="center">
+    <img src="https://img.shields.io/github/workflow/status/daanvdk/vivi/CI" alt="CI Status" />
+    <a href="https://codecov.io/gh/daanvdk/vivi"><img src="https://img.shields.io/codecov/c/gh/daanvdk/vivi" alt="Coverage" /></a>
+    <a href="https://pypi.org/project/vivi"><img src="https://img.shields.io/pypi/v/vivi" alt="Version" /></a>
+</p>
 
 A server side component based web framework.
 
