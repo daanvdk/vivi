@@ -100,14 +100,12 @@ def mount(queue, elem, cookies, cookie_paths, url, eager=None):
 
     elem_with_url = _url_provider(elem, value=url)
     state, result = elem_with_url._init()
-    static = True
 
     def rerender(url, paths, eager=None):
-        nonlocal elem_with_url, state, result, static
+        nonlocal elem_with_url, state, result
 
         elem_with_url = _url_provider(elem, value=url)
 
-        _ctx.static = True
         _ctx.rerender_path = rerender_path
         _ctx.push_url = push_url
         _ctx.replace_url = replace_url
@@ -121,9 +119,7 @@ def mount(queue, elem, cookies, cookie_paths, url, eager=None):
         _ctx.eager = eager
         try:
             state, result = elem_with_url._render(state, result)
-            static = _ctx.static
         finally:
-            del _ctx.static
             del _ctx.rerender_path
             del _ctx.push_url
             del _ctx.replace_url
@@ -143,11 +139,7 @@ def mount(queue, elem, cookies, cookie_paths, url, eager=None):
         elem_with_url._unmount(state, result)
 
     result = rerender(url, Paths(), eager)
-    if static:
-        unmount()
-        return result, None, None
-    else:
-        return result, rerender, unmount
+    return result, rerender, unmount
 
 
 class Vivi(Starlette):
@@ -203,80 +195,77 @@ class Vivi(Starlette):
             eager=eager,
         )
 
-        if rerender is None:
-            result, _ = wrap(result)
-        else:
-            async def next_render(eager=None):
-                nonlocal url
+        async def next_render(eager=None):
+            nonlocal url
 
-                changes = [await queue.get()]
-                while not queue.empty():
-                    changes.append(queue.get_nowait())
+            changes = [await queue.get()]
+            while not queue.empty():
+                changes.append(queue.get_nowait())
 
-                actions = []
-                paths = Paths()
-                for change in changes:
-                    if change[0] == 'path':
-                        _, path = change
+            actions = []
+            paths = Paths()
+            for change in changes:
+                if change[0] == 'path':
+                    _, path = change
+                    paths[path] = None
+                elif change[0] in ('pop_url', 'push_url', 'replace_url'):
+                    change_type, url = change
+                    if change_type != 'pop_url':
+                        actions.append(change)
+                elif change[0] == 'set_cookie':
+                    _, key, value = change
+                    cookies[key] = value
+                    for path in cookie_paths.get(key, []):
                         paths[path] = None
-                    elif change[0] in ('pop_url', 'push_url', 'replace_url'):
-                        change_type, url = change
-                        if change_type != 'pop_url':
-                            actions.append(change)
-                    elif change[0] == 'set_cookie':
-                        _, key, value = change
-                        cookies[key] = value
-                        for path in cookie_paths.get(key, []):
-                            paths[path] = None
-                        actions.append(change)
-                    elif change[0] == 'unset_cookie':
-                        _, key = change
-                        del cookies[key]
-                        for path in cookie_paths.get(key, []):
-                            paths[path] = None
-                        actions.append(change)
-                    else:
-                        actions.append(change)
+                    actions.append(change)
+                elif change[0] == 'unset_cookie':
+                    _, key = change
+                    del cookies[key]
+                    for path in cookie_paths.get(key, []):
+                        paths[path] = None
+                    actions.append(change)
+                else:
+                    actions.append(change)
 
-                return actions, rerender(url, paths, eager)
+            return actions, rerender(url, paths, eager)
 
-            init_actions = []
-            while eager:
-                actions, result = await next_render(eager)
-                init_actions.extend(actions)
+        init_actions = []
+        while eager:
+            actions, result = await next_render(eager)
+            init_actions.extend(actions)
 
-            session_id = uuid4()
-            script = ('script', {}, {0: 0}, SafeText(
-                SCRIPT_BEFORE +
-                json.dumps(
-                    request.url_for('websocket', session_id=session_id)
-                ) +
-                SCRIPT_AFTER
-            ))
-            base_result = result
-            result, head = wrap(result, script)
+        session_id = uuid4()
+        script = ('script', {}, {0: 0}, SafeText(
+            SCRIPT_BEFORE +
+            json.dumps(
+                request.url_for('websocket', session_id=session_id)
+            ) +
+            SCRIPT_AFTER
+        ))
+        base_result = result
+        result, head = wrap(result, script)
 
-            self._sessions[session_id] = (
-                queue,
-                subscriptions,
-                script,
-                head,
-                base_result,
-                init_actions,
-                next_render,
-                unmount,
-            )
+        self._sessions[session_id] = (
+            queue,
+            subscriptions,
+            script,
+            head,
+            base_result,
+            init_actions,
+            next_render,
+            unmount,
+        )
 
-            def session_timeout():
-                try:
-                    unmount = self._sessions.pop(session_id)[-1]
-                except KeyError:
-                    return
-                unmount()
+        def session_timeout():
+            try:
+                unmount = self._sessions.pop(session_id)[-1]
+            except KeyError:
+                return
+            unmount()
 
-            loop = asyncio.get_running_loop()
-            loop.call_later(5, session_timeout)
-            html_refs(None, result, queue, subscriptions)
+        loop = asyncio.get_running_loop()
+        loop.call_later(5, session_timeout)
+        html_refs(None, result, queue, subscriptions)
 
         return Response(
             ''.join(html_parts(result)),

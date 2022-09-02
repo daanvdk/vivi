@@ -57,9 +57,6 @@ class TestSession(Assertion):
         )
         html_refs(None, self._result, self._queue, self._subscriptions)
 
-        if rerender is None:
-            return
-
         try:
             while True:
                 changes = [await self._queue.get()]
