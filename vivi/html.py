@@ -57,7 +57,6 @@ def clean_value(value):
     args = {
         'prevent_default': False,
         'stop_propagation': False,
-        'stop_immediate_propagation': False,
     }
 
     while isinstance(value, CallbackWrapper):
@@ -68,7 +67,6 @@ def clean_value(value):
     for arg in [
         'prevent_default',
         'stop_propagation',
-        'stop_immediate_propagation',
     ]:
         parts.append(', ')
         parts.append(json.dumps(args[arg]))

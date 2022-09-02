@@ -23,7 +23,3 @@ def prevent_default(callback):
 
 def stop_propagation(callback):
     return CallbackWrapper(callback, 'stop_propagation', True)
-
-
-def stop_immediate_propagation(callback):
-    return CallbackWrapper(callback, 'stop_immediate_propagation', True)

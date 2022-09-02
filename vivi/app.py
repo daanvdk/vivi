@@ -333,13 +333,24 @@ class Vivi(Starlette):
                     queue.put_nowait(('pop_url', details))
                 else:
                     wrapped_result, _ = wrap(result, script, head)
-                    node = Node.from_path(
+
+                    current_target = Node.from_path(
                         wrapped_result, path, queue, subscriptions,
                     )
-                    handler = node[f'on{event_type}']
+                    try:
+                        target_path = details.pop('target')
+                    except KeyError:
+                        target = current_target
+                    else:
+                        target = Node.from_path(
+                            wrapped_result, target_path, queue, subscriptions,
+                        )
+
+                    handler = current_target[f'on{event_type}']
                     loop.call_soon(handler, SimpleNamespace(
                         type=event_type,
-                        target=node,
+                        target=target,
+                        current_target=current_target,
                         **details,
                     ))
 

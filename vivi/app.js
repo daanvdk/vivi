@@ -56,18 +56,20 @@ function createNode(data) {
 
 const socket = new WebSocket({{socket_url}});
 
-function call(event, preventDefault, stopPropagation, stopImmediatePropagation) {
+function call(event, preventDefault, stopPropagation) {
     if (preventDefault) {
         event.preventDefault();
     }
     if (stopPropagation) {
         event.stopPropagation();
     }
-    if (stopImmediatePropagation) {
-        event.stopImmediatePropagation();
-    }
 
     const details = {};
+
+    if (event.currentTarget !== event.target) {
+        details.target = getPath(event.target);
+    }
+
     switch (event.type) {
         case 'input': {
             details.value = event.target.value;
@@ -76,6 +78,7 @@ function call(event, preventDefault, stopPropagation, stopImmediatePropagation) 
             details.value = event.target.value;
         }; break;
     }
+
     socket.send(JSON.stringify([event.type, ...getPath(event.currentTarget), details]));
 }
 

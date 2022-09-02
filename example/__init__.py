@@ -52,7 +52,8 @@ def greeter():
 
     @use_callback()
     def ref(node):
-        node.focus()
+        if node is not None:
+            node.focus()
 
     return fragment(
         h.h1('Greeter'),

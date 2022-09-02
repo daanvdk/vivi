@@ -4,9 +4,61 @@ from types import SimpleNamespace
 from ..html import SafeText
 from ..node import Node
 from ..filter import parse_filter
+from ..events import CallbackWrapper
 
 
 NO_VALUE = object()
+
+
+def dispatch(target, event_type, details):
+    loop = asyncio.get_running_loop()
+
+    current_target = target
+    while current_target is not None:
+        try:
+            callback = current_target[f'on{event_type}']
+        except (ValueError, KeyError):
+            callback = None
+
+        args = {
+            'prevent_default': False,
+            'stop_propagation': False,
+        }
+
+        while isinstance(callback, CallbackWrapper):
+            args[callback.key] = callback.value
+            callback = callback.callback
+
+        event = SimpleNamespace(
+            type=event_type,
+            target=target,
+            current_target=current_target,
+            **details,
+        )
+
+        if callback is not None:
+            loop.call_soon(callback, event)
+        if not args['prevent_default']:
+            loop.call_soon(default_callback, event)
+        if args['stop_propagation']:
+            break
+
+        current_target = current_target.parent
+
+
+def default_callback(event):
+    if (
+        event.type == 'click' and
+        event.current_target.type == 'element' and
+        event.current_target.tag in ('input', 'button') and
+        event.current_target.get('type') == 'submit'
+    ):
+        node = event.current_target.parent
+        while node is not None:
+            if node.type == 'element' and node.tag == 'form':
+                dispatch(node, 'submit', {})
+                break
+            node = node.parent
 
 
 class Assertion:
@@ -164,7 +216,7 @@ class Assertion:
                 _, expected = action
                 if self._session._url != expected:
                     return (
-                        f'session has url {self._session.url!r} instead of '
+                        f'session has url {self._session._url!r} instead of '
                         f'{expected!r}'
                     )
 
@@ -191,27 +243,15 @@ class Assertion:
 
     def _event(self, nodes, event_type, **details):
         try:
-            node, = nodes
+            target, = nodes
         except ValueError:
             if nodes:
                 return f'cannot {event_type} on multiple nodes'
             else:
                 return f'no node to {event_type}'
 
-        try:
-            handler = node[f'on{event_type}']
-            assert callable(handler)
-        except (ValueError, KeyError, AssertionError):
-            return f'node is not {event_type}able'
-
-        node._subscribe(self._session._queue, self._session._subscriptions)
-
-        loop = asyncio.get_running_loop()
-        loop.call_soon(handler, SimpleNamespace(
-            type=event_type,
-            target=node,
-            **details,
-        ))
+        target._subscribe(self._session._queue, self._session._subscriptions)
+        dispatch(target, event_type, details)
 
     async def _aholds(self, timeout):
         loop = asyncio.get_running_loop()
