@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict, deque
 import html
 from itertools import islice
@@ -378,15 +379,39 @@ def html_diff(old_node, new_node, path=()):
         removes -= 1
 
 
-def html_refs(old_node, new_node, path=()):
+def html_refs(old_node, new_node, queue, subscriptions, path=(), root=None):
+    loop = asyncio.get_running_loop()
+
     if new_node is old_node:
         return
+
+    if root is None:
+        root = new_node
 
     old_nodes, new_nodes, index_mapping = (
         html_flatten_with_mapping(old_node, new_node)
     )
 
+    mapped_old_nodes = set(index_mapping.values())
+
+    for old_index, old_node in enumerate(old_nodes):
+        if old_index in mapped_old_nodes:
+            continue
+
+        if not isinstance(old_node, tuple):
+            continue
+
+        try:
+            ref = old_node[1]['ref']
+        except KeyError:
+            pass
+        else:
+            loop.call_soon(ref, None)
+
     for new_index, new_node in enumerate(new_nodes):
+        if not isinstance(new_node, tuple):
+            continue
+
         try:
             old_index = index_mapping[new_index]
         except KeyError:
@@ -394,19 +419,23 @@ def html_refs(old_node, new_node, path=()):
         else:
             old_node = old_nodes[old_index]
 
-        if new_node is not old_node and isinstance(new_node, tuple):
+        if new_node is not old_node:
+            new_path = (*path, new_index)
+
             if old_node is None:
                 try:
                     ref = new_node[1]['ref']
                 except KeyError:
                     pass
                 else:
-                    yield (ref, (*path, new_index))
+                    from .node import Node
+                    node = Node.from_path(root, new_path, queue, subscriptions)
+                    loop.call_soon(ref, node)
 
             if isinstance(old_node, tuple):
                 old_node = (None, {}, *old_node[2:])
-            else:
-                old_node = None
             new_node = (None, {}, *new_node[2:])
-
-            yield from html_refs(old_node, new_node, (*path, new_index))
+            html_refs(
+                old_node, new_node,
+                queue, subscriptions, new_path, root,
+            )

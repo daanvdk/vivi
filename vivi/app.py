@@ -276,10 +276,7 @@ class Vivi(Starlette):
 
             loop = asyncio.get_running_loop()
             loop.call_later(5, session_timeout)
-            for ref, path in html_refs(None, result):
-                loop.call_soon(ref, Node.from_path(
-                    result, path, queue, subscriptions,
-                ))
+            html_refs(None, result, queue, subscriptions)
 
         return Response(
             ''.join(html_parts(result)),
@@ -355,10 +352,7 @@ class Vivi(Starlette):
 
                 for callback in list(subscriptions):
                     callback(new_result)
-                for ref, path in html_refs(old_result, new_result):
-                    loop.call_soon(ref, Node.from_path(
-                        new_result, path, queue, subscriptions,
-                    ))
+                html_refs(old_result, new_result, queue, subscriptions)
 
                 actions.extend(html_diff(old_result, new_result))
                 if actions:

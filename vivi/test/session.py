@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from ..app import mount
 from ..paths import Paths
 from ..html import html_refs
-from ..node import Node
 from .assertion import Assertion
 
 
@@ -56,10 +55,7 @@ class TestSession(Assertion):
         self._result, rerender, unmount = mount(
             self._queue, self._elem, self._cookies, cookie_paths, self._url,
         )
-        for ref, path in html_refs(None, self._result):
-            self._loop.call_soon(ref, Node.from_path(
-                self._result, path, self._queue, self._subscriptions,
-            ))
+        html_refs(None, self._result, self._queue, self._subscriptions)
 
         if rerender is None:
             return
@@ -107,10 +103,10 @@ class TestSession(Assertion):
 
                 for callback in list(self._subscriptions):
                     callback(self._result)
-                for ref, path in html_refs(old_result, self._result):
-                    self._loop.call_soon(ref, Node.from_path(
-                        self._result, path, self._queue, self._subscriptions,
-                    ))
+                html_refs(
+                    old_result, self._result,
+                    self._queue, self._subscriptions,
+                )
 
                 self._change.set()
                 self._change.clear()

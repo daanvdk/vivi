@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that are not valid python identifiers.
 - Added a new parameter `eager` to `vivi.hooks.use_future`, this parameter
   makes the initial response wait on the rerender from this future when true.
+- Added a special handling of the prop `ref` on
+  `vivi.elements.HTMLElement`-instances. This callable will be called with the
+  `vivi.nodes.Node`-instance when mounted and with `None` when unmounted.
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
   interpreted as extra props instead of a child. This is mainly useful for
   adding props that are not valid python identifiers.
+- Added a target prop to events with the new `vivi.node.Node`-class as value.
 
 ### Fixed
 - Fix unmount crash on websocket close.
