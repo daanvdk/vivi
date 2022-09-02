@@ -2,6 +2,7 @@ from collections.abc import Mapping
 import weakref
 
 from .html import SafeText, html_flatten, html_get, html_flatten_with_mapping
+from .filter import parse_filter
 
 
 class Subscription:
@@ -21,14 +22,18 @@ class Node(Mapping):
     def __init__(self, parents, node, queue=None, subscriptions=None):
         self._parents = parents
         self._node = node
+        self._subscriptions = None
+        self._queue = None
+        self._subscription = None
+
+        if queue is not None and subscriptions is not None:
+            self._subscribe(queue, subscriptions)
+
+    def _subscribe(self, queue, subscriptions):
         self._queue = queue
         self._subscriptions = subscriptions
-
-        if subscriptions is not None:
-            self._subscription = Subscription(self)
-            subscriptions.add(self._subscription)
-        else:
-            self._subscription = None
+        self._subscription = Subscription(self)
+        subscriptions.add(self._subscription)
 
     def _on_result(self, result):
         parents = []
@@ -82,7 +87,7 @@ class Node(Mapping):
         try:
             *parents, (node, _) = self._parents
         except ValueError:
-            raise ValueError('node has no parent') from None
+            return None
         return Node(parents, node, self._subscriptions)
 
     @property
@@ -118,14 +123,27 @@ class Node(Mapping):
             raise ValueError('node is not an element')
         return len(self._node[1])
 
-    def children(self):
+    def children(self, *, deep=False):
         if self.type not in ('element', 'document'):
             raise ValueError('node is not an element')
-        return (
-            Node((*self._parents, (self._node, index)), node)
-            for index, node in enumerate(html_flatten(
-                (None, {}, {}, *self._node[3:])
-            ))
+        for index, node in enumerate(html_flatten(
+            (None, {}, {}, *self._node[3:])
+        )):
+            node = Node(
+                (*self._parents, (self._node, index)), node,
+                self._queue, self._subscriptions,
+            )
+            yield node
+            if deep and node.type in ('element', 'document'):
+                yield from node.children(deep=True)
+
+    def text(self):
+        if self.type == 'text':
+            return self.content
+        return SafeText.join(
+            child.content
+            for child in self.children(deep=True)
+            if child.type == 'text'
         )
 
     @property
@@ -141,3 +159,10 @@ class Node(Mapping):
             raise ValueError('node is detached from the DOM')
         path = (index for _, index in self._parents)
         self._queue.put_nowait(('focus', *path))
+
+    def find(self, filter):
+        try:
+            filter = parse_filter(filter)
+        except AssertionError as e:
+            raise ValueError(str(e)) from None
+        return filter([self])

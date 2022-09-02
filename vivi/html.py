@@ -27,6 +27,27 @@ class SafeText:
     def __hash__(self):
         return hash((SafeText, self.text))
 
+    @classmethod
+    def join(cls, parts):
+        checked_parts = []
+        safe = False
+
+        for part in parts:
+            if isinstance(part, cls):
+                if not safe:
+                    parts = [html.escape(part) for part in parts]
+                    safe = True
+                checked_parts.append(part.text)
+            elif safe:
+                checked_parts.append(html.escape(part))
+            else:
+                checked_parts.append(part)
+
+        joined = ''.join(checked_parts)
+        if safe:
+            joined = cls(joined)
+        return joined
+
 
 def clean_value(value):
     if not callable(value):
