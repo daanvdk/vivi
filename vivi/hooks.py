@@ -1,5 +1,7 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 from .context import create_context
 
@@ -19,7 +21,7 @@ def use_ref(**kwargs):
     return ref
 
 
-def use_state(initial_value):
+def use_state(initial_value=None):
     ref = use_ref()
     _ctx.static = False
     ref.path = tuple(_ctx.path)
@@ -170,3 +172,36 @@ def use_set_cookie():
 def use_unset_cookie():
     _ctx.static = False
     return _ctx.unset_cookie
+
+
+def use_file(path):
+    ref = use_ref()
+
+    try:
+        path = Path(path).absolute()
+    except Exception:
+        pass
+
+    if getattr(ref, 'path', None) != path:
+        if hasattr(ref, 'path'):
+            ref._vivi_cleanup()
+            del ref.path
+            del ref.url
+            del ref._vivi_cleanup
+
+        if path is not None:
+            if not isinstance(path, Path) or not path.is_file():
+                raise ValueError('path is not a file')
+
+            files = _ctx.files
+            file_id = uuid4()
+            files[file_id] = path
+
+            def cleanup():
+                del files[file_id]
+
+            ref.path = path
+            ref.url = _ctx.get_file_url(file_id)
+            ref._vivi_cleanup = cleanup
+
+    return getattr(ref, 'url', None)

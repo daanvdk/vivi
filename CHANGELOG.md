@@ -14,12 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a special handling of the prop `ref` on
   `vivi.elements.HTMLElement`-instances. This callable will be called with the
   `vivi.nodes.Node`-instance when mounted and with `None` when unmounted.
+- Added a hook `use_file` that when provided a path-like object returns a temp
+  url pointing to the file that can only be used by the current user. (Based on
+  a cookie.)
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
   interpreted as extra props instead of a child. This is mainly useful for
   adding props that are not valid python identifiers.
 - Added a target prop to events with the new `vivi.node.Node`-class as value.
+- `input` and `submit` events with file inputs as target now have an attribute
+  `file` or `files` (based on if they have the `multiple` prop) instead of the
+  `value` attribute. These files then again have 2-attributes, `content_type`
+  and `content`.
 
 ### Fixed
 - Fix unmount crash on websocket close.

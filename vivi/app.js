@@ -56,7 +56,7 @@ function createNode(data) {
 
 const socket = new WebSocket({{socket_url}});
 
-function call(event, preventDefault, stopPropagation) {
+async function call(event, preventDefault, stopPropagation) {
     if (preventDefault) {
         event.preventDefault();
     }
@@ -65,21 +65,36 @@ function call(event, preventDefault, stopPropagation) {
     }
 
     const details = {};
+    const message = [event.type, ...getPath(event.currentTarget), details];
 
     if (event.currentTarget !== event.target) {
         details.target = getPath(event.target);
     }
 
     switch (event.type) {
-        case 'input': {
-            details.value = event.target.value;
-        }; break;
-        case 'change': {
-            details.value = event.target.value;
+        case 'input': case 'change': {
+            if (event.target.tagName === 'INPUT' && event.target.getAttribute('type') === 'file') {
+                const files = await Promise.all(
+                    Array.from(event.target.files)
+                    .map((file) => new Promise((resolve, reject) =>  {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(file);
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                    })
+                ));
+                if (event.target.getAttribute('multiple')) {
+                    details.files = files;
+                } else {
+                    details.file = files[0] ?? null;
+                }
+            } else {
+                details.value = event.target.value;
+            }
         }; break;
     }
 
-    socket.send(JSON.stringify([event.type, ...getPath(event.currentTarget), details]));
+    socket.send(JSON.stringify(message));
 }
 
 addEventListener('popstate', (event) => {

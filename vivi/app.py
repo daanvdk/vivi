@@ -1,4 +1,5 @@
 import asyncio
+from base64 import b64decode
 from itertools import islice
 import json
 from pathlib import Path
@@ -8,7 +9,7 @@ from uuid import uuid4
 from starlette.applications import Starlette
 from starlette.routing import Route, WebSocketRoute, Mount
 from starlette.staticfiles import StaticFiles
-from starlette.responses import Response
+from starlette.responses import Response, FileResponse
 from starlette.websockets import WebSocketDisconnect
 
 from .hooks import _ctx, _url_provider
@@ -22,6 +23,19 @@ SCRIPT_BEFORE, SCRIPT_AFTER = (
     Path(__file__).parent.joinpath('app.js')
     .read_text().split('{{socket_url}}')
 )
+
+
+def parse_data_url(data_url):
+    assert data_url.startswith('data:')
+    semicolon = data_url.index(';')
+    content_type = data_url[len('data:'):semicolon]
+    assert data_url.startswith(';base64,', semicolon)
+    content = b64decode(data_url[(
+        len('data:') +
+        len(content_type) +
+        len(';base64,')
+    ):])
+    return SimpleNamespace(content_type=content_type, content=content)
 
 
 def wrap(result, script=None, prev_head=None):
@@ -80,7 +94,10 @@ def wrap(result, script=None, prev_head=None):
     return result, original_head
 
 
-def mount(queue, elem, cookies, cookie_paths, url, eager=None):
+def mount(
+    queue, elem, cookies, cookie_paths, url, files, get_file_url,
+    eager=None,
+):
     contexts = {}
 
     def rerender_path(path):
@@ -116,6 +133,8 @@ def mount(queue, elem, cookies, cookie_paths, url, eager=None):
         _ctx.cookie_paths = cookie_paths
         _ctx.rerender_paths = paths
         _ctx.path = []
+        _ctx.files = files
+        _ctx.get_file_url = get_file_url
         _ctx.eager = eager
         try:
             state, result = elem_with_url._render(state, result)
@@ -130,6 +149,8 @@ def mount(queue, elem, cookies, cookie_paths, url, eager=None):
             del _ctx.cookie_paths
             del _ctx.rerender_paths
             del _ctx.path
+            del _ctx.files
+            del _ctx.get_file_url
             del _ctx.eager
 
         return result
@@ -149,6 +170,7 @@ class Vivi(Starlette):
         debug=False,
         static_path=None,
         static_route='/static',
+        file_route='/file/{file_id:uuid}',
         on_startup=[],
         on_shutdown=[],
     ):
@@ -158,6 +180,14 @@ class Vivi(Starlette):
             routes.append(Mount(
                 static_route,
                 app=StaticFiles(directory=static_path),
+            ))
+
+        if file_route is not None:
+            routes.append(Route(
+                file_route,
+                endpoint=self._file,
+                methods=['GET'],
+                name='file',
             ))
 
         routes.append(Route(
@@ -180,18 +210,36 @@ class Vivi(Starlette):
         )
 
         self._elem = elem
+        self._client_files = {}
+        self._client_sessions = {}
         self._sessions = {}
 
     async def _http(self, request):
+        try:
+            client_id = request.cookies['vivi_client']
+            assert client_id in self._client_sessions
+        except (KeyError, AssertionError):
+            client_id = str(uuid4())
+            self._client_files[client_id] = {}
+            self._client_sessions[client_id] = 0
+
         queue = asyncio.Queue()
         subscriptions = set()
         url = request['path']
         cookies = request.cookies
         cookie_paths = {}
+        files = self._client_files[client_id]
+
+        router = request.scope['router']
+        base_url = request.base_url
+
+        def get_file_url(file_id):
+            url_path = router.url_path_for('file', file_id=file_id)
+            return url_path.make_absolute_url(base_url=base_url)
 
         eager = set()
         result, rerender, unmount = mount(
-            queue, self._elem, cookies, cookie_paths, url,
+            queue, self._elem, cookies, cookie_paths, url, files, get_file_url,
             eager=eager,
         )
 
@@ -237,13 +285,20 @@ class Vivi(Starlette):
         session_id = uuid4()
         script = ('script', {}, {0: 0}, SafeText(
             SCRIPT_BEFORE +
-            json.dumps(
-                request.url_for('websocket', session_id=session_id)
-            ) +
+            json.dumps(request.url_for('websocket', session_id=session_id)) +
             SCRIPT_AFTER
         ))
         base_result = result
         result, head = wrap(result, script)
+
+        self._client_sessions[client_id] += 1
+
+        def full_unmount():
+            unmount()
+            self._client_sessions[client_id] -= 1
+            if not self._client_sessions[client_id]:
+                del self._client_sessions[client_id]
+                del self._client_files[client_id]
 
         self._sessions[session_id] = (
             queue,
@@ -253,29 +308,31 @@ class Vivi(Starlette):
             base_result,
             init_actions,
             next_render,
-            unmount,
+            full_unmount,
         )
 
         def session_timeout():
             try:
-                unmount = self._sessions.pop(session_id)[-1]
+                del self._sessions[session_id]
             except KeyError:
                 return
-            unmount()
+            full_unmount()
 
         loop = asyncio.get_running_loop()
         loop.call_later(5, session_timeout)
         html_refs(None, result, queue, subscriptions)
 
-        return Response(
+        response = Response(
             ''.join(html_parts(result)),
             media_type='text/html',
             headers={'connection': 'keep-alive'},
         )
+        if self._client_sessions[client_id] == 1:
+            response.set_cookie('vivi_client', client_id)
+        return response
 
     async def _websocket(self, socket):
         loop = asyncio.get_running_loop()
-
         session_id = socket.path_params['session_id']
         try:
             (
@@ -335,6 +392,14 @@ class Vivi(Starlette):
                             wrapped_result, target_path, queue, subscriptions,
                         )
 
+                    if 'file' in details:
+                        details['file'] = parse_data_url(details['file'])
+                    if 'files' in details:
+                        details['files'] = [
+                            parse_data_url(data_url)
+                            for data_url in details['files']
+                        ]
+
                     handler = current_target[f'on{event_type}']
                     loop.call_soon(handler, SimpleNamespace(
                         type=event_type,
@@ -362,3 +427,13 @@ class Vivi(Starlette):
                     ))
 
                 render_fut = loop.create_task(next_render())
+
+    async def _file(self, request):
+        file_id = request.path_params['file_id']
+        try:
+            client_id = request.cookies['vivi_client']
+            file_path = self._client_files[client_id][file_id]
+            assert file_path.is_file()
+        except (AssertionError, KeyError):
+            return Response('file not found', status_code=404)
+        return FileResponse(file_path)

@@ -18,6 +18,7 @@ class TestSession(Assertion):
         self._prev = []
         self._next = []
         self._cookies = cookies.copy()
+        self._files = {}
         self._timeout = timeout
         self._elem = elem
         self._subscriptions = set()
@@ -46,6 +47,9 @@ class TestSession(Assertion):
     def __exit__(self, *exc):
         self.stop()
 
+    def _get_file_url(self, file_id):
+        return f'/file/{file_id}'
+
     async def _run(self):
         self._queue = asyncio.Queue()
         self._change = asyncio.Event()
@@ -54,6 +58,7 @@ class TestSession(Assertion):
 
         self._result, rerender, unmount = mount(
             self._queue, self._elem, self._cookies, cookie_paths, self._url,
+            self._files, self._get_file_url,
         )
         html_refs(None, self._result, self._queue, self._subscriptions)
 

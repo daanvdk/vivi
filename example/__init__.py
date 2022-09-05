@@ -1,12 +1,14 @@
 import asyncio
 import json
+from mimetypes import guess_type, guess_extension
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from vivi import Vivi
 from vivi.elements import component, h, fragment
 from vivi.hooks import (
     use_state, use_callback, use_future, use_cookie, use_set_cookie,
-    use_unset_cookie,
+    use_unset_cookie, use_effect, use_file, use_memo,
 )
 from vivi.events import prevent_default
 from vivi.urls import link, router
@@ -121,7 +123,7 @@ def cookie(name):
         h.div('no value set' if value is None else f'current_value: {value}'),
         h.input(value=new_value, oninput=oninput),
         h.button(onclick=set)('set'),
-        None if value is None else h.button(onclick=unset)('unset'),
+        value is not None and h.button(onclick=unset)('unset'),
     )
 
 
@@ -135,6 +137,44 @@ def cookies():
 
 
 @component
+def file_upload():
+    file_path, set_file_path = use_state()
+
+    @use_effect(file_path)
+    def cleanup_file_path():
+        if file_path is not None:
+            return file_path.unlink
+
+    @use_callback(set_file_path)
+    def oninput(e):
+        suffix = guess_extension(e.file.content_type)
+        f = NamedTemporaryFile(suffix=suffix, delete=False)
+        try:
+            f.write(e.file.content)
+        finally:
+            f.close()
+        set_file_path(Path(f.name))
+
+    file_url = use_file(file_path)
+
+    @use_memo(file_path)
+    def content_type():
+        if file_path is None:
+            return None
+        return guess_type(file_path)[0]
+
+    return fragment(
+        h.input(type='file', oninput=oninput),
+        file_url is not None and (
+            h.a(href=file_url, download=True)('Download'),
+        ),
+        content_type is not None and content_type.startswith('image/') and (
+            h.img(src=file_url),
+        ),
+    )
+
+
+@component
 def examples():
     return h.html(
         h.head(h.link(rel='stylesheet', href='/static/main.css')),
@@ -144,6 +184,7 @@ def examples():
                 h.li(link(to='/greeter', add_active=True)('Greeter')),
                 h.li(link(to='/io', add_active=True)('IO')),
                 h.li(link(to='/cookies', add_active=True)('Cookies')),
+                h.li(link(to='/file-upload', add_active=True)('File Upload')),
             ),
             router(
                 ('/', counters),
@@ -151,6 +192,7 @@ def examples():
                 ('/greeter', greeter),
                 ('/io', io),
                 ('/cookies', cookies),
+                ('/file-upload', file_upload),
                 not_found=h.p('Page not found.'),
             ),
         ),

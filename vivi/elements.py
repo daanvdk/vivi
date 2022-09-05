@@ -54,6 +54,8 @@ class Element(ABC):
         raise NotImplementedError
 
     def _clean_elem(self, elem):
+        if elem is False:
+            elem = None
         if elem is None or isinstance(elem, (SafeText, str)):
             elem = Literal(elem)
 
