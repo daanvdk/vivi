@@ -4,6 +4,7 @@ from itertools import islice
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote_to_bytes
 from uuid import uuid4
 
 from starlette.applications import Starlette
@@ -27,14 +28,20 @@ SCRIPT_BEFORE, SCRIPT_AFTER = (
 
 def parse_data_url(data_url):
     assert data_url.startswith('data:')
-    semicolon = data_url.index(';')
-    content_type = data_url[len('data:'):semicolon]
-    assert data_url.startswith(';base64,', semicolon)
-    content = b64decode(data_url[(
-        len('data:') +
-        len(content_type) +
-        len(';base64,')
-    ):])
+    type_end = next(
+        index
+        for index in range(len('data:'), len(data_url))
+        if data_url[index] in ';,'
+    )
+
+    content_type = data_url[len('data:'):type_end]
+
+    if data_url[type_end] == ';':
+        assert data_url.startswith(';base64,', type_end)
+        content = b64decode(data_url[type_end + len(';base64,'):])
+    else:
+        content = unquote_to_bytes(data_url[type_end + len(','):])
+
     return SimpleNamespace(content_type=content_type, content=content)
 
 
