@@ -3,11 +3,11 @@ from unittest.mock import patch
 
 from vivi.test import TestSession
 
-from example import examples
+from example import app
 
 
 def test_counter():
-    with TestSession(examples, url='/counters') as session:
+    with TestSession(app, url='/counters') as session:
         counter_1 = session.find('div:eq(0)')
         counter_2 = session.find('div:eq(1)')
 
@@ -31,7 +31,7 @@ def test_counter():
 
 
 def test_greeter():
-    with TestSession(examples, url='/greeter') as session:
+    with TestSession(app, url='/greeter') as session:
         input = session.find('input')
         output = session.find('div')
 
@@ -52,7 +52,7 @@ def test_greeter():
 def test_io():
     with (
         patch('example.get_data') as get_data_mock,
-        TestSession(examples, url='/io') as session,
+        TestSession(app, url='/io') as session,
     ):
         queue = asyncio.Queue()
         get_data_mock.side_effect = queue.get
@@ -86,11 +86,7 @@ def test_io():
 
 
 def test_cookies():
-    with TestSession(
-        examples,
-        url='/cookies',
-        cookies={'foo': '123'},
-    ) as session:
+    with TestSession(app, url='/cookies', cookies={'foo': '123'}) as session:
         def check(cookie, cookie_value, input_value):
             root = session.find(f'h1:text("Cookie: {cookie}")').parent()
 
@@ -134,7 +130,7 @@ def test_cookies():
 
 
 def test_file_upload():
-    with TestSession(examples, url='/file-upload') as session:
+    with TestSession(app, url='/file-upload') as session:
         assert session.find('div').has_text('No file uploaded yet.')
 
         assert session.find('input[type="file"]').input(
@@ -173,7 +169,7 @@ def test_file_upload():
 
 
 def test_navigation():
-    with TestSession(examples, url='/does-not-exist') as session:
+    with TestSession(app, url='/does-not-exist') as session:
         assert session.find('.active').not_exists()
         assert session.find('p').has_text('Page not found.')
 

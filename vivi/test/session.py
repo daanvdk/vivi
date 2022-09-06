@@ -1,10 +1,16 @@
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, asynccontextmanager
+from functools import partial
 
-from ..app import mount
+from ..app import Vivi, mount
 from ..paths import Paths
 from ..html import html_refs
 from .assertion import Assertion
+
+
+@asynccontextmanager
+async def noop_lifespan():
+    yield
 
 
 class TestSession(Assertion):
@@ -14,6 +20,12 @@ class TestSession(Assertion):
     def __init__(self, elem, *, url='/', cookies={}, timeout=3):
         super().__init__(self, ())
 
+        if isinstance(elem, Vivi):
+            lifespan = partial(elem.router.lifespan_context, elem)
+            elem = elem._elem
+        else:
+            lifespan = noop_lifespan
+
         self._url = url
         self._prev = []
         self._next = []
@@ -21,6 +33,7 @@ class TestSession(Assertion):
         self._files = {}
         self._timeout = timeout
         self._elem = elem
+        self._lifespan = lifespan
         self._subscriptions = set()
 
     def start(self, loop=None):
@@ -51,6 +64,14 @@ class TestSession(Assertion):
         return f'/file/{file_id}'
 
     async def _run(self):
+        lifespan_context = self._lifespan()
+        await lifespan_context.__aenter__()
+        try:
+            return await self._run_base()
+        finally:
+            await lifespan_context.__aexit__(None, None, None)
+
+    async def _run_base(self):
         self._queue = asyncio.Queue()
         self._change = asyncio.Event()
 
@@ -134,14 +155,23 @@ class TestSession(Assertion):
 
 @contextmanager
 def run_together(self, *sessions):
+    lifespan = sessions[0]._lifespan
+    for session in sessions[1:]:
+        assert session._lifespan is lifespan, (
+            'sessions have different lifespans'
+        )
+
+    lifespan_context = lifespan()
+
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(lifespan_context.__aenter__())
 
     for session in sessions:
         session._loop = loop
-        session._run_fut = loop.create_task(session._run())
+        session._run_fut = loop.create_task(session._run_base())
 
     try:
-        asyncio.set_event_loop(loop)
         while loop._ready:
             loop.stop()
             loop.run_forever()
@@ -154,6 +184,10 @@ def run_together(self, *sessions):
             del session._loop
             del session._run_fut
 
-        loop.stop()
-        loop.run_forever()
+        loop.run_until_complete(lifespan_context.__aexit__(None, None, None))
+
+        while loop._ready:
+            loop.stop()
+            loop.run_forever()
+
         loop.close()
