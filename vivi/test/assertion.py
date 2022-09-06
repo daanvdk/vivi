@@ -1,5 +1,8 @@
 import asyncio
+import re
 from types import SimpleNamespace
+
+from starlette.convertors import CONVERTOR_TYPES
 
 from ..html import SafeText
 from ..node import Node
@@ -7,11 +10,23 @@ from ..filter import parse_filter
 from ..events import CallbackWrapper
 
 
+UUID_CONVERTOR = CONVERTOR_TYPES['uuid']
 NO_VALUE = object()
+FILE_RE = re.compile(fr'/file/({UUID_CONVERTOR.regex})')
 
 
 def dispatch(target, event_type, details):
     loop = asyncio.get_running_loop()
+
+    if (
+        target.type == 'element' and
+        target.tag == 'input' and
+        target.get('type') == 'file'
+    ):
+        if target.get('multiple', False):
+            details['files'] = details.pop('value')
+        else:
+            details['file'] = details.pop('value')
 
     current_target = target
     while current_target is not None:
@@ -67,7 +82,7 @@ class Assertion:
         self._session = session
         self._actions = actions
 
-    def _holds(self):
+    def _get(self):
         actions = self._actions
         if not actions or actions[-1][0] == 'find':
             actions = (*actions, ('exists',))
@@ -86,23 +101,54 @@ class Assertion:
                 ]
 
             elif action[0] == 'exists':
-                if not nodes:
-                    return 'node does not exist'
+                assert nodes, 'node does not exist'
 
             elif action[0] == 'not_exists':
-                if nodes:
-                    return 'node exists'
+                assert not nodes, 'node exists'
 
             elif action[0] == 'has_text':
                 _, expected = action
                 actual = SafeText.join(node.text() for node in nodes)
-                if actual != expected:
-                    return f'node has text {actual!r} instead of {expected!r}'
+                assert actual == expected, (
+                    f'node has text {actual!r} instead of {expected!r}'
+                )
 
             elif action[0] == 'not_has_text':
                 _, expected = action
-                if SafeText.join(node.text() for node in nodes) == expected:
-                    return f'node has text {expected!r}'
+                actual = SafeText.join(node.text() for node in nodes)
+                assert actual != expected, f'node has text {expected!r}'
+
+            elif action[0] == 'has_tag':
+                _, tag = action
+
+                try:
+                    node, = nodes
+                except ValueError:
+                    raise AssertionError(
+                        'cannot check tag of multiple nodes'
+                        if nodes else
+                        'no node to check tag of'
+                    )
+
+                assert node.type == 'element' and node.tag == tag, (
+                    f'node does not have tag {tag}'
+                )
+
+            elif action[0] == 'not_has_tag':
+                _, tag = action
+
+                try:
+                    node, = nodes
+                except ValueError:
+                    raise AssertionError(
+                        'cannot check tag of multiple nodes'
+                        if nodes else
+                        'no node to check tag of'
+                    )
+
+                assert node.type != 'element' or node.tag != tag, (
+                    f'node has tag {tag}'
+                )
 
             elif action[0] == 'has_prop':
                 _, key = action
@@ -110,13 +156,15 @@ class Assertion:
                 try:
                     node, = nodes
                 except ValueError:
-                    if nodes:
-                        return 'cannot check props of multiple nodes'
-                    else:
-                        return 'no node to check props of'
+                    raise AssertionError(
+                        'cannot check props of multiple nodes'
+                        if nodes else
+                        'no node to check props of'
+                    )
 
-                if node.type != 'element' or key not in node:
-                    return f'node does not have prop {key}'
+                assert node.type == 'element' and key in node, (
+                    f'node does not have prop {key}'
+                )
 
             elif action[0] == 'not_has_prop':
                 _, key = action
@@ -129,8 +177,9 @@ class Assertion:
                     else:
                         return 'no node to check props of'
 
-                if node.type == 'element' and key in node:
-                    return f'node does have prop {key}'
+                assert node.type != 'element' or key not in node, (
+                    f'node does have prop {key}'
+                )
 
             elif action[0] == 'prop':
                 _, key, expected = action
@@ -138,21 +187,21 @@ class Assertion:
                 try:
                     node, = nodes
                 except ValueError:
-                    if nodes:
-                        return 'cannot check props of multiple nodes'
-                    else:
-                        return 'no node to check props of'
+                    raise AssertionError(
+                        'cannot check props of multiple nodes'
+                        if nodes else
+                        'no node to check props of'
+                    )
 
                 try:
                     actual = node[key]
                 except (ValueError, KeyError):
-                    return f'node does not have prop {key}'
+                    raise AssertionError(f'node does not have prop {key}')
                 else:
-                    if actual != expected:
-                        return (
-                            f'node prop {key} has value {actual!r} instead of '
-                            f'{expected!r}'
-                        )
+                    assert actual == expected, (
+                        f'node prop {key} has value {actual!r} instead of '
+                        f'{expected!r}'
+                    )
 
             elif action[0] == 'not_prop':
                 _, key, expected = action
@@ -160,47 +209,51 @@ class Assertion:
                 try:
                     node, = nodes
                 except ValueError:
-                    if nodes:
-                        return 'cannot check props of multiple nodes'
-                    else:
-                        return 'no node to check props of'
+                    raise AssertionError(
+                        'cannot check props of multiple nodes'
+                        if nodes else
+                        'no node to check props of'
+                    )
 
                 try:
                     actual = node[key]
                 except (ValueError, KeyError):
                     pass
                 else:
-                    if actual == expected:
-                        return f'node prop {key} does have value {expected!r}'
+                    assert actual != expected, (
+                        f'node prop {key} does have value {expected!r}'
+                    )
 
             elif action[0] == 'has_len':
                 _, expected = action
                 actual = len(nodes)
-                if actual != expected:
-                    return f'node has len {actual} instead of {expected}'
+                assert actual == expected, (
+                    f'node has len {actual} instead of {expected}'
+                )
 
             elif action[0] == 'has_cookie':
                 _, key = action
-                if key not in self._session._cookies:
-                    return f'node does not have cookie {key}'
+                assert key in self._session._cookies, (
+                    f'node does not have cookie {key}'
+                )
 
             elif action[0] == 'not_has_cookie':
                 _, key = action
-                if key in self._session._cookies:
-                    return f'session does have cookie {key}'
+                assert key not in self._session._cookies, (
+                    f'session does have cookie {key}'
+                )
 
             elif action[0] == 'cookie':
                 _, key, expected = action
                 try:
                     actual = self._session._cookies[key]
                 except KeyError:
-                    return f'session does not have cookie {key}'
+                    raise AssertionError(f'session does not have cookie {key}')
                 else:
-                    if actual != expected:
-                        return (
-                            f'session cookie {key} has value {actual!r} '
-                            f'instead of {expected!r}'
-                        )
+                    assert actual == expected, (
+                        f'session cookie {key} has value {actual!r} instead '
+                        f'of {expected!r}'
+                    )
 
             elif action[0] == 'not_cookie':
                 _, key, expected = action
@@ -209,66 +262,99 @@ class Assertion:
                 except KeyError:
                     pass
                 else:
-                    if actual == expected:
-                        return f'session cookie {key} has value {actual!r}'
+                    assert actual != expected, (
+                        f'session cookie {key} has value {actual!r}'
+                    )
 
             elif action[0] == 'url':
                 _, expected = action
-                if self._session._url != expected:
-                    return (
-                        f'session has url {self._session._url!r} instead of '
-                        f'{expected!r}'
-                    )
+                assert self._session._url == expected, (
+                    f'session has url {self._session._url!r} instead of '
+                    f'{expected!r}'
+                )
 
             elif action[0] == 'not_url':
                 _, expected = action
-                if self._session._url == expected:
-                    return f'session has url {expected!r}'
+                assert self._session_url != expected, (
+                    f'session has url {expected!r}'
+                )
+
+            elif action[0] == 'has_file':
+                _, file_id = action
+                assert file_id in self._session._files, 'file does not exist'
+
+            elif action[0] == 'not_has_file':
+                _, file_id = action
+                assert file_id not in self._session._files, 'file exists'
+
+            elif action[0] == 'file':
+                _, file_id, expected = action
+                try:
+                    file_path = self._session._files[file_id]
+                except KeyError:
+                    raise AssertionError('file does not exist')
+                else:
+                    actual = file_path.read_bytes()
+                    assert actual == expected, (
+                        f'file has content {actual!r} instead of {expected!r}'
+                    )
+                    del actual
+
+            elif action[0] == 'file':
+                _, file_id, expected = action
+                try:
+                    file_path = self._session._files[file_id]
+                except KeyError:
+                    pass
+                else:
+                    actual = file_path.read_bytes()
+                    assert actual != expected, f'file has content {actual!r}'
+                    del actual
 
             elif action[0] == 'click':
-                reason = self._event(nodes, 'click')
-                if reason is not None:
-                    return reason
+                self._event(nodes, 'click')
 
             elif action[0] == 'input':
                 _, value = action
-                reason = self._event(nodes, 'input', value=value)
-                if reason is not None:
-                    return reason
+                self._event(nodes, 'input', value=value)
 
             else:
                 raise ValueError(f'unknown action: {action[0]}')
 
-        return None
+        return nodes
 
     def _event(self, nodes, event_type, **details):
         try:
             target, = nodes
         except ValueError:
-            if nodes:
-                return f'cannot {event_type} on multiple nodes'
-            else:
-                return f'no node to {event_type}'
+            raise AssertionError(
+                f'cannot {event_type} on multiple nodes'
+                if nodes else
+                f'no node to {event_type}'
+            ) from None
 
         target._subscribe(self._session._queue, self._session._subscriptions)
         dispatch(target, event_type, details)
 
-    async def _aholds(self, timeout):
-        loop = asyncio.get_running_loop()
-
-        timeout_fut = loop.create_task(asyncio.sleep(timeout))
+    async def _aget(self):
+        timeout_fut = asyncio.create_task(
+            asyncio.sleep(self._session._timeout)
+        )
         while True:
             try:
-                reason = self._holds()
+                nodes = self._get()
+            except AssertionError as e:
+                reason = str(e)
             except Exception:
-                timeout_fut.cancel()
+                if not timeout_fut.done():
+                    timeout_fut.cancel()
                 raise
+            else:
+                if not timeout_fut.done():
+                    timeout_fut.cancel()
+                return nodes
 
-            if reason is None:
-                timeout_fut.cancel()
-                return None
-
-            change_fut = loop.create_task(self._session._change.wait())
+            change_fut = asyncio.create_task(self._session._change.wait())
             await asyncio.wait(
                 [change_fut, timeout_fut, self._session._run_fut],
                 return_when=asyncio.FIRST_COMPLETED,
@@ -284,31 +370,39 @@ class Assertion:
                 except Exception:
                     raise
                 else:
-                    return reason
+                    raise RuntimeError('application unexpectedly stopped')
 
             if timeout_fut.done():
                 if not change_fut.done():
                     change_fut.cancel()
-                return reason
+                raise AssertionError(reason)
 
-    def wait(self, timeout=None):
-        if timeout is None:
-            timeout = self._session._timeout
+    def all(self, filter=NO_VALUE):
+        __tracebackhide__ = True
+        if filter is not NO_VALUE:
+            self = self.find(filter)
 
         loop = self._session._loop
         asyncio.set_event_loop(loop)
+
         try:
-            reason = loop.run_until_complete(self._aholds(timeout))
+            return loop.run_until_complete(self._aget())
         except AssertionError as e:
-            reason = str(e)
-        if reason is not None:
-            __tracebackhide__ = True
-            raise AssertionError(reason)
-        self._session._update()
+            raise AssertionError(str(e)) from None
+        finally:
+            self._session._update()
+
+    def get(self, filter=NO_VALUE):
+        __tracebackhide__ = True
+        try:
+            node, = self.all(filter)
+        except ValueError:
+            raise AssertionError('multiple nodes exist')
+        return node
 
     def __bool__(self):
         __tracebackhide__ = True
-        self.wait()
+        self.all()
         return True
 
     def find(self, filter):
@@ -333,6 +427,12 @@ class Assertion:
             self._session,
             (*self._actions, ('not_has_text', text)),
         )
+
+    def has_tag(self, tag):
+        return Assertion(self._session, (*self._actions, ('has_tag', tag)))
+
+    def not_has_tag(self, tag):
+        return Assertion(self._session, (*self._actions, ('not_has_tag', tag)))
 
     def has_prop(self, key, value=NO_VALUE):
         if value is NO_VALUE:
@@ -371,8 +471,41 @@ class Assertion:
     def not_has_url(self, url):
         return Assertion(self._session, (*self._actions, ('not_url', url)))
 
+    def has_file(self, file_url, content=NO_VALUE):
+        try:
+            match = FILE_RE.fullmatch(file_url)
+            file_id = UUID_CONVERTOR.convert(match.group(1))
+        except (AttributeError, ValueError):
+            raise ValueError('not a valid file url') from None
+
+        if content is NO_VALUE:
+            action = ('has_file', file_id)
+        else:
+            action = ('file', file_id, content)
+        return Assertion(self._session, (*self._actions, action))
+
+    def not_has_file(self, file_url, content=NO_VALUE):
+        try:
+            match = FILE_RE.fullmatch(file_url)
+            file_id = UUID_CONVERTOR.convert(match.group(1))
+        except (AttributeError, ValueError):
+            raise ValueError('not a valid file url') from None
+
+        if content is NO_VALUE:
+            action = ('not_has_file', file_id)
+        else:
+            action = ('not_file', file_id, content)
+        return Assertion(self._session, (*self._actions, action))
+
     def click(self):
         return Assertion(self._session, (*self._actions, ('click',)))
 
-    def input(self, value):
+    def input(self, value=NO_VALUE, **details):
+        if value is NO_VALUE:
+            value = SimpleNamespace(**details)
+        elif details:
+            raise ValueError(
+                'kwargs are only accepted when no positional argument is '
+                'provided'
+            )
         return Assertion(self._session, (*self._actions, ('input', value)))

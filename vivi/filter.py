@@ -86,6 +86,11 @@ def _check(predicate, nodes):
         raise AssertionError(f'unknown predicate: {predicate[0]}')
 
 
+def _children(nodes, deep):
+    for node in nodes:
+        yield from node.children(deep=deep)
+
+
 def _find(filters, nodes):
     nodes = list(nodes)
     matches = []
@@ -93,11 +98,7 @@ def _find(filters, nodes):
     for filter in filters:
         nodes_ = list(nodes)
         for predicates, deep in filter:
-            nodes_ = (
-                child
-                for node in nodes_
-                for child in node.children(deep=deep)
-            )
+            nodes_ = _children(nodes_, deep)
             for predicate in predicates:
                 nodes_ = predicate(nodes_)
         matches.append(nodes_)

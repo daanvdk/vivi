@@ -76,8 +76,7 @@ def io():
 
     @use_callback(set_data_fut)
     def onclick(e):
-        loop = asyncio.get_running_loop()
-        set_data_fut(loop.create_task(get_data()))
+        set_data_fut(asyncio.create_task(get_data()))
 
     return fragment(
         h.h1('IO'),
@@ -139,6 +138,7 @@ def cookies():
 @component
 def file_upload():
     file_path, set_file_path = use_state()
+    print('path', file_path)
 
     @use_effect(file_path)
     def cleanup_file_path():
@@ -147,6 +147,7 @@ def file_upload():
 
     @use_callback(set_file_path)
     def oninput(e):
+        print('upload', e.file)
         suffix = guess_extension(e.file.content_type)
         f = NamedTemporaryFile(suffix=suffix, delete=False)
         try:
@@ -156,6 +157,7 @@ def file_upload():
         set_file_path(Path(f.name))
 
     file_url = use_file(file_path)
+    print('url', file_url)
 
     @use_memo(file_path)
     def content_type():
@@ -163,13 +165,20 @@ def file_upload():
             return None
         return guess_type(file_path)[0]
 
+    print('content_type', content_type)
+
     return fragment(
         h.input(type='file', oninput=oninput),
-        file_url is not None and (
-            h.a(href=file_url, download=True)('Download'),
-        ),
-        content_type is not None and content_type.startswith('image/') and (
-            h.img(src=file_url),
+        h.div(
+            file_url is None and 'No file uploaded yet.',
+            file_url is not None and (
+                h.a(href=file_url, download=True)('Download'),
+            ),
+            (
+                content_type is not None and
+                content_type.startswith('image/') and
+                h.img(src=file_url)
+            ),
         ),
     )
 

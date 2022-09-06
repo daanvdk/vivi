@@ -357,8 +357,8 @@ class Vivi(Starlette):
                 separators=(',', ':'),
             ))
 
-        receive_fut = loop.create_task(socket.receive_json())
-        render_fut = loop.create_task(next_render())
+        receive_fut = asyncio.create_task(socket.receive_json())
+        render_fut = asyncio.create_task(next_render())
 
         while True:
             await asyncio.wait(
@@ -408,7 +408,7 @@ class Vivi(Starlette):
                         **details,
                     ))
 
-                receive_fut = loop.create_task(socket.receive_json())
+                receive_fut = asyncio.create_task(socket.receive_json())
 
             elif render_fut.done():
                 old_result, _ = wrap(result, script)
@@ -426,7 +426,7 @@ class Vivi(Starlette):
                         separators=(',', ':'),
                     ))
 
-                render_fut = loop.create_task(next_render())
+                render_fut = asyncio.create_task(next_render())
 
     async def _file(self, request):
         file_id = request.path_params['file_id']

@@ -133,6 +133,45 @@ def test_cookies():
         check('baz', None, '')
 
 
+def test_file_upload():
+    with TestSession(examples, url='/file-upload') as session:
+        assert session.find('div').has_text('No file uploaded yet.')
+
+        assert session.find('input[type="file"]').input(
+            content_type='text/plain',
+            content=b'foobar',
+        )
+        assert session.find('div > *').has_len(1)
+        link = (
+            session.find('div > *')
+            .has_tag('a')
+            .has_prop('download', True)
+            .has_text('Download')
+            .get()
+        )
+        assert session.has_file(link['href'], b'foobar')
+
+        assert session.find('input[type="file"]').input(
+            content_type='image/png',
+            content=b'barbaz',
+        )
+        assert session.find('div > *').has_len(2)
+        link = (
+            session.find('div > :eq(0)')
+            .has_tag('a')
+            .has_prop('download', True)
+            .has_text('Download')
+            .get()
+        )
+        img = (
+            session.find('div > :eq(1)')
+            .has_tag('img')
+            .get()
+        )
+        assert session.has_file(link['href'], b'barbaz')
+        assert link['href'] == img['src']
+
+
 def test_navigation():
     with TestSession(examples, url='/does-not-exist') as session:
         assert session.find('.active').not_exists()
