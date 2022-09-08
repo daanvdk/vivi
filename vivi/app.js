@@ -147,7 +147,11 @@ function handleAction([action, ...path]) {
             const value = path.pop();
             const key = path.pop();
             const node = getNode(path);
-            node.setAttribute(key, value);
+            if (key === 'value') {
+                node.value = value;
+            } else {
+                node.setAttribute(key, value);
+            }
         }; break;
         case 'unset': {
             const key = path.pop();

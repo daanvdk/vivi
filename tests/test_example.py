@@ -51,7 +51,7 @@ def test_greeter():
 
 def test_io():
     with (
-        patch('example.get_data') as get_data_mock,
+        patch('example.io_page.get_data') as get_data_mock,
         TestSession(app, url='/io') as session,
     ):
         queue = asyncio.Queue()
@@ -166,6 +166,56 @@ def test_file_upload():
         )
         assert session.has_file(link['href'], b'barbaz')
         assert link['href'] == img['src']
+
+
+def test_chat():
+    with TestSession(app, url='/chat') as foo_session:
+        assert foo_session.find('[name="name"]').input('Foo')
+        assert foo_session.find('button').click()
+
+        foo_messages = foo_session.find('.chat > li')
+        assert foo_messages.has_text(
+            'Foo joined.'
+        )
+
+        bar_session = foo_session.fork()
+        assert bar_session.find('[name="name"]').input('Bar')
+        assert bar_session.find('button').click()
+
+        bar_messages = bar_session.find('.chat > li')
+        assert foo_messages.has_text(
+            'Foo joined.'
+            'Bar joined.'
+        )
+        assert bar_messages.has_text(
+            'Bar joined.'
+        )
+
+        assert foo_session.find('[name="message"]').input('Hey Bar!')
+        assert foo_session.find('button').click()
+
+        assert foo_messages.has_text(
+            'Foo joined.'
+            'Bar joined.'
+            'Foo: Hey Bar!'
+        )
+        assert bar_messages.has_text(
+            'Bar joined.'
+            'Foo: Hey Bar!'
+        )
+
+        assert bar_session.find('[name="message"]').input('Bye Foo!')
+        assert bar_session.find('button').click()
+        assert bar_session.find('a[href="/counters"]').click()
+
+        assert foo_messages.has_text(
+            'Foo joined.'
+            'Bar joined.'
+            'Foo: Hey Bar!'
+            'Bar: Bye Foo!'
+            'Bar left.'
+        )
+        assert bar_messages.not_exists()
 
 
 def test_navigation():

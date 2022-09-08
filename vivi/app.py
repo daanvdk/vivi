@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager
 from base64 import b64decode
 from itertools import islice
 import json
@@ -102,7 +103,10 @@ def wrap(result, script=None, prev_head=None):
 
 
 def mount(
-    queue, elem, cookies, cookie_paths, url, files, get_file_url,
+    queue, elem,
+    cookies, cookie_paths,
+    url, shared_providers,
+    files, get_file_url,
     eager=None,
 ):
     contexts = {}
@@ -121,6 +125,9 @@ def mount(
 
     def unset_cookie(key):
         queue.put_nowait(('unset_cookie', key))
+
+    for shared_provider in reversed(shared_providers):
+        elem = shared_provider(elem)
 
     elem_with_url = _url_provider(elem, value=url)
     state, result = elem_with_url._init()
@@ -170,7 +177,7 @@ def mount(
     return result, rerender, unmount
 
 
-class Vivi(Starlette):
+class Vivi:
 
     def __init__(
         self, elem, *,
@@ -178,8 +185,7 @@ class Vivi(Starlette):
         static_path=None,
         static_route='/static',
         file_route='/file/{file_id:uuid}',
-        on_startup=[],
-        on_shutdown=[],
+        shared=[],
     ):
         routes = []
 
@@ -209,17 +215,19 @@ class Vivi(Starlette):
             name='websocket',
         ))
 
-        super().__init__(
+        self._base_app = Starlette(
             debug=debug,
             routes=routes,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
+            lifespan=self._lifespan,
         )
-
         self._elem = elem
         self._client_files = {}
         self._client_sessions = {}
         self._sessions = {}
+        self._shared = shared
+
+    async def __call__(self, scope, receive, send):
+        await self._base_app(scope, receive, send)
 
     async def _http(self, request):
         try:
@@ -246,7 +254,10 @@ class Vivi(Starlette):
 
         eager = set()
         result, rerender, unmount = mount(
-            queue, self._elem, cookies, cookie_paths, url, files, get_file_url,
+            queue, self._elem,
+            cookies, cookie_paths,
+            url, self._shared_providers,
+            files, get_file_url,
             eager=eager,
         )
 
@@ -444,3 +455,12 @@ class Vivi(Starlette):
         except (AssertionError, KeyError):
             return Response('file not found', status_code=404)
         return FileResponse(file_path)
+
+    @asynccontextmanager
+    async def _lifespan(self, app):
+        async with AsyncExitStack() as stack:
+            self._shared_providers = tuple([
+                await stack.enter_async_context(shared())
+                for shared in self._shared
+            ])
+            yield

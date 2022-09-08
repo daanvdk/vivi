@@ -1,16 +1,10 @@
 import asyncio
-from contextlib import contextmanager, asynccontextmanager
-from functools import partial
+from contextlib import AsyncExitStack
 
 from ..app import Vivi, mount
 from ..paths import Paths
 from ..html import html_refs
 from .assertion import Assertion
-
-
-@asynccontextmanager
-async def noop_lifespan():
-    yield
 
 
 class TestSession(Assertion):
@@ -21,10 +15,10 @@ class TestSession(Assertion):
         super().__init__(self, ())
 
         if isinstance(elem, Vivi):
-            lifespan = partial(elem.router.lifespan_context, elem)
+            shared = elem._shared
             elem = elem._elem
         else:
-            lifespan = noop_lifespan
+            shared = ()
 
         self._url = url
         self._prev = []
@@ -33,7 +27,7 @@ class TestSession(Assertion):
         self._files = {}
         self._timeout = timeout
         self._elem = elem
-        self._lifespan = lifespan
+        self._shared = shared
         self._subscriptions = set()
 
     def start(self, loop=None):
@@ -42,16 +36,43 @@ class TestSession(Assertion):
 
         self._loop = loop
         self._run_fut = loop.create_task(self._run())
+        self._root = None
+        self._forks = []
         self._update()
 
     def stop(self):
         self._run_fut.cancel()
-        self._loop.stop()
-        self._loop.run_forever()
-        self._loop.close()
+
+        if self._root is None:
+            for fork in self._forks:
+                fork.stop()
+            del self._forks
+
+            self._loop.stop()
+            self._loop.run_forever()
+            self._loop.close()
 
         del self._loop
+        del self._root
         del self._run_fut
+
+    def fork(self):
+        while self._root is not None:
+            self = self._root
+
+        session = TestSession(
+            self._elem,
+            url=self._url,
+            cookies=self._cookies.copy(),
+            timeout=self._timeout,
+        )
+        session._shared_providers = self._shared_providers
+        session._loop = self._loop
+        session._run_fut = self._loop.create_task(session._base_run())
+        session._root = self
+        session._update()
+        self._forks.append(session)
+        return session
 
     def __enter__(self):
         self.start()
@@ -64,21 +85,23 @@ class TestSession(Assertion):
         return f'/file/{file_id}'
 
     async def _run(self):
-        lifespan_context = self._lifespan()
-        await lifespan_context.__aenter__()
-        try:
-            return await self._run_base()
-        finally:
-            await lifespan_context.__aexit__(None, None, None)
+        async with AsyncExitStack() as stack:
+            self._shared_providers = tuple([
+                await stack.enter_async_context(shared())
+                for shared in self._shared
+            ])
+            await self._base_run()
 
-    async def _run_base(self):
+    async def _base_run(self):
         self._queue = asyncio.Queue()
         self._change = asyncio.Event()
 
         cookie_paths = {}
 
         self._result, rerender, unmount = mount(
-            self._queue, self._elem, self._cookies, cookie_paths, self._url,
+            self._queue, self._elem,
+            self._cookies, cookie_paths,
+            self._url, self._shared_providers,
             self._files, self._get_file_url,
         )
         html_refs(None, self._result, self._queue, self._subscriptions)
@@ -151,43 +174,3 @@ class TestSession(Assertion):
             self._loop.run_forever()
         if self._run_fut.done():
             self._run_fut.result()
-
-
-@contextmanager
-def run_together(self, *sessions):
-    lifespan = sessions[0]._lifespan
-    for session in sessions[1:]:
-        assert session._lifespan is lifespan, (
-            'sessions have different lifespans'
-        )
-
-    lifespan_context = lifespan()
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(lifespan_context.__aenter__())
-
-    for session in sessions:
-        session._loop = loop
-        session._run_fut = loop.create_task(session._run_base())
-
-    try:
-        while loop._ready:
-            loop.stop()
-            loop.run_forever()
-
-        yield sessions
-    finally:
-        for session in reversed(sessions):
-            if not session._run_fut.done():
-                session._run_fut.cancel()
-            del session._loop
-            del session._run_fut
-
-        loop.run_until_complete(lifespan_context.__aexit__(None, None, None))
-
-        while loop._ready:
-            loop.stop()
-            loop.run_forever()
-
-        loop.close()

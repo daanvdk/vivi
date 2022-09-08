@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a hook `use_file` that when provided a path-like object returns a temp
   url pointing to the file that can only be used by the current user. (Based on
   a cookie.)
+- Added a new function `vivi.shared.create_shared`, which you can supply an
+  async context manager that returns a resource you want to share among all
+  connections. This function then returns a 2-tuple of 2 values:
+  - An instance of `vivi.shared.Shared` that you can pass along to the
+    `Vivi`-app with the new keyword argument `shared` which accepts an iterable
+    of `Shared`-instances and uses their context manager to make sure the
+    resource is available when the app is running.
+  - A hook that you can use to get the shared resource from within a component.
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
