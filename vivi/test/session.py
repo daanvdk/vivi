@@ -36,25 +36,32 @@ class TestSession(Assertion):
 
         self._loop = loop
         self._run_fut = loop.create_task(self._run())
+        self._mounted_fut = loop.create_future()
         self._root = None
         self._forks = []
         self._update()
 
     def stop(self):
         self._run_fut.cancel()
+        try:
+            self._loop.run_until_complete(self._run_fut)
+        except asyncio.CancelledError:
+            pass
 
         if self._root is None:
             for fork in self._forks:
                 fork.stop()
             del self._forks
 
-            self._loop.stop()
-            self._loop.run_forever()
+            while self._loop._ready:
+                self._loop.stop()
+                self._loop.run_forever()
             self._loop.close()
 
         del self._loop
-        del self._root
         del self._run_fut
+        del self._mounted_fut
+        del self._root
 
     def fork(self):
         while self._root is not None:
@@ -69,6 +76,7 @@ class TestSession(Assertion):
         session._shared_providers = self._shared_providers
         session._loop = self._loop
         session._run_fut = self._loop.create_task(session._base_run())
+        session._mounted_fut = self._loop.create_future()
         session._root = self
         session._update()
         self._forks.append(session)
@@ -104,6 +112,7 @@ class TestSession(Assertion):
             self._url, self._shared_providers,
             self._files, self._get_file_url,
         )
+        self._mounted_fut.set_result(None)
         html_refs(None, self._result, self._queue, self._subscriptions)
 
         try:

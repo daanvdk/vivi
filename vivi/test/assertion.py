@@ -337,6 +337,18 @@ class Assertion:
         dispatch(target, event_type, details)
 
     async def _aget(self):
+        await asyncio.wait(
+            [self._session._run_fut, self._session._mounted_fut],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if self._session._run_fut.done():
+            try:
+                self._session._run_fut.result()
+            except Exception:
+                raise
+            else:
+                raise RuntimeError('application unexpectedly stopped')
+
         timeout_fut = asyncio.create_task(
             asyncio.sleep(self._session._timeout)
         )
