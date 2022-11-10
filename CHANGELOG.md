@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     of `Shared`-instances and uses their context manager to make sure the
     resource is available when the app is running.
   - A hook that you can use to get the shared resource from within a component.
+- Added a new hook `vivi.hooks.use_path` that you can use to resolve a path
+  local to the base url where the app is running.
+- Added a new hook `vivi.hooks.use_static` that you can use to resolve an url
+  to a static file.
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
@@ -38,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fix unmount crash on websocket close.
+- Fix the href of a `vivi.urls.link` to be correct when running your vivi app
+  under a prefixed path.
 
 ## [0.1.1] - 2022-08-31
 ### Fixed

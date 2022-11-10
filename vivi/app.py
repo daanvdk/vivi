@@ -106,7 +106,7 @@ def mount(
     queue, elem,
     cookies, cookie_paths,
     url, shared_providers,
-    files, get_file_url,
+    files, get_url,
     eager=None,
 ):
     contexts = {}
@@ -148,7 +148,7 @@ def mount(
         _ctx.rerender_paths = paths
         _ctx.path = []
         _ctx.files = files
-        _ctx.get_file_url = get_file_url
+        _ctx.get_url = get_url
         _ctx.eager = eager
         try:
             state, result = elem_with_url._render(state, result)
@@ -164,7 +164,7 @@ def mount(
             del _ctx.rerender_paths
             del _ctx.path
             del _ctx.files
-            del _ctx.get_file_url
+            del _ctx.get_url
             del _ctx.eager
 
         return result
@@ -193,6 +193,7 @@ class Vivi:
             routes.append(Mount(
                 static_route,
                 app=StaticFiles(directory=static_path),
+                name='static',
             ))
 
         if file_route is not None:
@@ -246,18 +247,18 @@ class Vivi:
         files = self._client_files[client_id]
 
         router = request.scope['router']
-        base_url = request.base_url
+        base_path = request.base_url.path.rstrip('/')
 
-        def get_file_url(file_id):
-            url_path = router.url_path_for('file', file_id=file_id)
-            return url_path.make_absolute_url(base_url=base_url)
+        def get_url(name, **params):
+            url_path = router.url_path_for(name, **params)
+            return base_path + '/' + str(url_path).lstrip('/')
 
         eager = set()
         result, rerender, unmount = mount(
             queue, self._elem,
             cookies, cookie_paths,
             url, self._shared_providers,
-            files, get_file_url,
+            files, get_url,
             eager=eager,
         )
 

@@ -7,6 +7,13 @@ from ..html import html_refs
 from .assertion import Assertion
 
 
+URLS = {
+    'http': lambda path: path,
+    'static': lambda path: '/static/' + path.lstrip('/'),
+    'file': lambda file_id: '/file/' + str(file_id),
+}
+
+
 class TestSession(Assertion):
 
     __test__ = False
@@ -89,8 +96,8 @@ class TestSession(Assertion):
     def __exit__(self, *exc):
         self.stop()
 
-    def _get_file_url(self, file_id):
-        return f'/file/{file_id}'
+    def _get_url(self, name, **params):
+        return URLS[name](**params)
 
     async def _run(self):
         async with AsyncExitStack() as stack:
@@ -110,7 +117,7 @@ class TestSession(Assertion):
             self._queue, self._elem,
             self._cookies, cookie_paths,
             self._url, self._shared_providers,
-            self._files, self._get_file_url,
+            self._files, self._get_url,
         )
         self._mounted_fut.set_result(None)
         html_refs(None, self._result, self._queue, self._subscriptions)

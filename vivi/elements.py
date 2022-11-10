@@ -349,7 +349,7 @@ class Component(Element):
 class HTMLFactory:
 
     def __getattr__(self, name):
-        return HTMLElement(name, {}, ())
+        return HTMLElement(name.replace('_', '-'), {}, ())
 
     def __getitem__(self, name):
         return HTMLElement(name, {}, ())

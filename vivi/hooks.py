@@ -201,7 +201,16 @@ def use_file(path):
                 del files[file_id]
 
             ref.path = path
-            ref.url = _ctx.get_file_url(file_id)
+            ref.url = _ctx.get_url('file', file_id=file_id)
             ref._vivi_cleanup = cleanup
 
     return getattr(ref, 'url', None)
+
+
+def use_static(path):
+    return _ctx.get_url('static', path=path)
+
+
+def use_path(path):
+    print('USING PATH', repr(path))
+    return _ctx.get_url('http', path=path)

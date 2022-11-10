@@ -1,7 +1,7 @@
 from starlette.routing import compile_path
 
 from .elements import component, h, fragment, Component
-from .hooks import use_url, use_push_url, use_callback, use_ref
+from .hooks import use_url, use_push_url, use_callback, use_ref, use_path
 from .events import prevent_default
 
 
@@ -24,7 +24,7 @@ def link(to, children, add_active=False, **props):
         except KeyError:
             props['class'] = 'active'
 
-    return h.a(href=to, onclick=onclick, **props)(*children)
+    return h.a(href=use_path(to), onclick=onclick, **props)(*children)
 
 
 @component
