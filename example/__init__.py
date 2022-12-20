@@ -9,7 +9,7 @@ from .greeter_page import greeter
 from .io_page import io
 from .cookies_page import cookies
 from .file_upload_page import file_upload
-from .chat_page import chat, shared_chat
+from .chat_page import chat
 
 
 @component
@@ -43,5 +43,4 @@ app = Vivi(
     examples,
     debug=True,
     static_path=Path(__file__).parent / 'static',
-    shared=[shared_chat],
 )

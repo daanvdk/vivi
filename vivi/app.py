@@ -1,6 +1,6 @@
 import asyncio
-from contextlib import AsyncExitStack, asynccontextmanager
 from base64 import b64decode
+from contextlib import AsyncExitStack, asynccontextmanager
 from itertools import islice
 import json
 from pathlib import Path
@@ -14,7 +14,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import Response, FileResponse
 from starlette.websockets import WebSocketDisconnect
 
-from .hooks import _ctx, _url_provider
+from .hooks import _ctx, _url_provider, _shared_pubsub
 from .html import SafeText, html_parts, html_diff, html_refs
 from .paths import Paths
 from .node import Node
@@ -225,7 +225,7 @@ class Vivi:
         self._client_files = {}
         self._client_sessions = {}
         self._sessions = {}
-        self._shared = shared
+        self._shared = [_shared_pubsub, *shared]
 
     async def __call__(self, scope, receive, send):
         await self._base_app(scope, receive, send)

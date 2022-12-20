@@ -46,10 +46,12 @@ def create_context(initial_value=None):
 
         ref = use_ref()
         if not hasattr(ref, '_vivi_cleanup'):
-            receivers[path] = None
+            receivers[path] = receivers.get(path, 0) + 1
 
             def cleanup():
-                del receivers[path]
+                receivers[path] -= 1
+                if not receivers[path]:
+                    del receivers[path]
 
             ref._vivi_cleanup = cleanup
 

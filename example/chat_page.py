@@ -1,58 +1,8 @@
-from contextlib import asynccontextmanager
-from types import SimpleNamespace
-
 from vivi.elements import component, h, fragment
-from vivi.hooks import use_state, use_callback, use_effect
+from vivi.hooks import (
+    use_state, use_callback, use_effect, use_publish, use_subscribe,
+)
 from vivi.events import prevent_default
-from vivi.shared import create_shared
-
-
-class ChatUser:
-
-    def __init__(self, chat, name):
-        self._chat = chat
-        self._name = name
-
-    def exit(self):
-        del self._chat._users[self._name]
-
-        for callbacks in self._chat._users.values():
-            callbacks.on_left(self._name)
-
-        self._chat = None
-
-    def send(self, message):
-        for callbacks in self._chat._users.values():
-            callbacks.on_message(self._name, message)
-
-
-class Chat:
-
-    def __init__(self):
-        self._users = {}
-
-    def enter(self, name, on_message, on_joined, on_left):
-        if name in self._users:
-            raise ValueError('name already in use')
-
-        self._users[name] = SimpleNamespace(
-            on_message=on_message,
-            on_joined=on_joined,
-            on_left=on_left,
-        )
-
-        for callbacks in self._users.values():
-            callbacks.on_joined(name)
-
-        return ChatUser(self, name)
-
-
-@asynccontextmanager
-async def chat_manager():
-    yield Chat()
-
-
-shared_chat, use_chat = create_shared(chat_manager)
 
 
 def focus(node):
@@ -83,47 +33,40 @@ def name_form(on_submit, error):
 
 @component
 def chat_room(name, on_error):
-    chat = use_chat()
-    user, set_user = use_state()
+    publish = use_publish()
     events, set_events = use_state(())
     message, set_message = use_state('')
 
-    @use_callback(set_events)
-    def on_message(name, message):
-        set_events(lambda events: (*events, ('message', name, message)))
+    @use_effect(name)
+    def on_name():
+        publish('joined', name)
+        return lambda: publish('left', name)
 
+    @use_subscribe('message')
     @use_callback(set_events)
+    def on_message(message):
+        set_events(lambda events: (*events, ('message', *message)))
+
+    @use_subscribe('joined')
+    @use_callback(set_events, name)
     def on_joined(name):
         set_events(lambda events: (*events, ('joined', name)))
 
+    @use_subscribe('left')
     @use_callback(set_events)
     def on_left(name):
         set_events(lambda events: (*events, ('left', name)))
-
-    @use_effect(chat, name, on_message)
-    def enter_chat():
-        try:
-            user = chat.enter(name, on_message, on_joined, on_left)
-        except Exception as e:
-            set_user(None)
-            on_error(str(e))
-        else:
-            set_user(user)
-            return user.exit
 
     @use_callback(set_message)
     @prevent_default
     def oninput(e):
         set_message(e.value)
 
-    @use_callback(user, message)
+    @use_callback(publish, name, message)
     @prevent_default
     def send(e):
-        user.send(message)
+        publish('message', (name, message))
         set_message('')
-
-    if user is None:
-        return 'Joining...'
 
     event_elems = []
     for event in events:

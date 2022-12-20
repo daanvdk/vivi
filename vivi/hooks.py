@@ -1,10 +1,12 @@
 import asyncio
+from contextlib import asynccontextmanager
 from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
 from .context import create_context
+from .shared import create_shared
 
 
 _ctx = SimpleNamespace()
@@ -78,7 +80,7 @@ def use_effect(*key):
                 cleanup = callback()
                 if callable(cleanup):
                     ref._vivi_cleanup = lambda: loop.call_soon(cleanup)
-
+        return callback
     return decorator
 
 
@@ -216,5 +218,73 @@ def use_static(path):
 
 
 def use_path(path):
-    print('USING PATH', repr(path))
     return _ctx.get_url('http', path=path)
+
+
+@asynccontextmanager
+async def _pubsub_manager():
+    loop = asyncio.get_event_loop()
+
+    channels = {}
+
+    def publish(channel, message):
+        try:
+            subscriptions = channels[channel]
+        except KeyError:
+            return
+        for callback in subscriptions.values():
+            loop.call_soon(callback, message)
+
+    def subscribe(channel, callback):
+        try:
+            subscriptions = channels[channel]
+        except KeyError:
+            subscriptions = {}
+            channels[channel] = subscriptions
+
+        subscription_id = object()
+        subscriptions[subscription_id] = callback
+
+        def unsubscribe():
+            del subscriptions[subscription_id]
+            if not subscriptions:
+                del channels[channel]
+
+        return unsubscribe
+
+    yield publish, subscribe
+
+
+_shared_pubsub, _use_pubsub = create_shared(_pubsub_manager)
+
+
+def use_publish():
+    publish, _ = _use_pubsub()
+    return publish
+
+
+def use_subscribe(channel, *, ignore=False):
+    def decorator(callback):
+        ref = use_ref()
+        _, subscribe = _use_pubsub()
+
+        subscribed = hasattr(ref, 'channel')
+        if subscribed if ignore else (
+            not subscribed or
+            ref.channel != channel or
+            ref.callback != callback
+        ):
+            if subscribed:
+                ref._vivi_cleanup()
+                del ref._vivi_cleanup
+
+            if ignore:
+                del ref.channel
+                del ref.callback
+            else:
+                ref.channel = channel
+                ref.callback = callback
+                ref._vivi_cleanup = subscribe(channel, callback)
+
+        return callback
+    return decorator

@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local to the base url where the app is running.
 - Added a new hook `vivi.hooks.use_static` that you can use to resolve an url
   to a static file.
+- Added two new hooks `vivi.hooks.use_publish` and `vivi.hooks.use_subscribe`
+  that together implement a pubsub system. `use_publish` returns a function
+  that given a channel and a message publishes that message to all subscribers.
+  `use_subscribe` is a decorator that given a channel runs the decorated
+  function for every published message on that channel. Channels can be any
+  hashable key.
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
@@ -41,9 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `content`.
 
 ### Fixed
-- Fix unmount crash on websocket close.
-- Fix the href of a `vivi.urls.link` to be correct when running your vivi app
+- Fixed unmount crash on websocket close.
+- Fixed the href of a `vivi.urls.link` to be correct when running your vivi app
   under a prefixed path.
+- Fixed unmount crash when a component used the same context twice.
 
 ## [0.1.1] - 2022-08-31
 ### Fixed
