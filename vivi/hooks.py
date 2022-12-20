@@ -1,4 +1,5 @@
 import asyncio
+from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -94,7 +95,7 @@ def use_replace_url():
     return _ctx.replace_url
 
 
-def use_future(fut, sentinel=None, *, eager=False):
+def use_future(fut, loading=object(), *, eager=False):
     ref = use_ref(fut=None, eager=None)
 
     ref.path = tuple(_ctx.path)
@@ -127,7 +128,10 @@ def use_future(fut, sentinel=None, *, eager=False):
     if fut is not None and fut.done():
         return fut.result()
     else:
-        return sentinel
+        return loading
+
+
+use_future.LOADING = signature(use_future).parameters['loading'].default
 
 
 NO_DEFAULT = object()

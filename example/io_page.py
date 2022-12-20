@@ -25,11 +25,11 @@ def io():
             'no data fetched'
             if data_fut is None else
             'loading...'
-            if data is None else
+            if data is use_future.LOADING else
             h.code(json.dumps(data))
         ),
         h.button(
             onclick=onclick,
-            disabled=data_fut is not None and data is None,
+            disabled=data_fut is not None and data is use_future.LOADING,
         )('get data'),
     )

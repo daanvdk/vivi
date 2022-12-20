@@ -330,7 +330,11 @@ def html_diff(old_node, new_node, path=()):
 
         if old_node is new_node:
             pass
-        elif isinstance(old_node, tuple) and isinstance(new_node, tuple):
+        elif (
+            isinstance(old_node, tuple) and
+            isinstance(new_node, tuple) and
+            old_node[0] == new_node[0]
+        ):
             _, old_props, old_mapping, *old_children = old_node
             _, new_props, new_mapping, *new_children = new_node
 
