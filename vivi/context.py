@@ -3,30 +3,32 @@ from .paths import Paths
 
 def create_context(initial_value=None):
     from .elements import component, fragment
-    from .hooks import _ctx, use_ref
+    from .hooks import CONTEXT, use_ref
 
     key = object()
 
     def get_context():
+        ctx = CONTEXT.get()
         try:
-            res = _ctx.contexts[key]
+            res = ctx.contexts[key]
         except KeyError:
             if callable(initial_value):
                 value = initial_value()
             else:
                 value = initial_value
             res = (value, Paths(), Paths())
-            _ctx.contexts[key] = res
+            ctx.contexts[key] = res
         return res
 
     @component
     def context_provider(value, children=()):
+        ctx = CONTEXT.get()
         initial_value, providers, receivers = get_context()
-        path = tuple(_ctx.path)
+        path = tuple(ctx.path)
 
         if path not in providers or providers[path] is not value:
             providers[path] = value
-            _ctx.rerender_paths.update(
+            ctx.rerender_paths.update(
                 (path, None)
                 for path in receivers.children(path, providers)
             )
@@ -41,8 +43,9 @@ def create_context(initial_value=None):
         return fragment(*children)
 
     def use_context():
+        ctx = CONTEXT.get()
         initial_value, providers, receivers = get_context()
-        path = tuple(_ctx.path)
+        path = tuple(ctx.path)
 
         ref = use_ref()
         if not hasattr(ref, '_vivi_cleanup'):

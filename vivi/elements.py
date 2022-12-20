@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from .hooks import _ctx
+from .hooks import CONTEXT
 from .html import SafeText
 
 
@@ -73,28 +73,29 @@ class Element(ABC):
         return elem
 
     def _rerender(self, prev_elem, prev_state, prev_result):
+        ctx = CONTEXT.get()
         comp = self._comp(prev_elem)
 
         if comp is INCOMPATIBLE:
             prev_elem._unmount(prev_state, prev_result)
-            _ctx.rerender_paths.prune(_ctx.path)
+            ctx.rerender_paths.prune(ctx.path)
             prev_state, prev_result = self._init()
 
-        if comp is EQUIVALENT and _ctx.path not in _ctx.rerender_paths:
+        if comp is EQUIVALENT and ctx.path not in ctx.rerender_paths:
             state = prev_state
             result = prev_result
 
-            for subpath in _ctx.rerender_paths.children(
-                _ctx.path, stop_at_value=True,
+            for subpath in ctx.rerender_paths.children(
+                ctx.path, stop_at_value=True,
             ):
-                path = _ctx.path
-                _ctx.path = list(subpath)
+                path = ctx.path
+                ctx.path = list(subpath)
                 try:
                     state, result = self._rerender_path(
                         subpath[len(path):], state, result,
                     )
                 finally:
-                    _ctx.path = path
+                    ctx.path = path
         else:
             state, result = self._render(prev_state, prev_result)
 
@@ -197,6 +198,7 @@ class HTMLElement(Element):
         return {}, (self._tag, self._props, {})
 
     def _render(self, prev_state, prev_result):
+        ctx = CONTEXT.get()
         state = {}
         child_results = []
         child_prev_indexes = {}
@@ -222,13 +224,13 @@ class HTMLElement(Element):
                 prev_child_result = prev_result[prev_index + 3]
                 child_prev_indexes[index] = prev_index
 
-            _ctx.path.append(key)
+            ctx.path.append(key)
             try:
                 child_state, child_result = child._rerender(
                     prev_child, prev_child_state, prev_child_result,
                 )
             finally:
-                _ctx.path.pop()
+                ctx.path.pop()
 
             state[key] = (child, child_state, index)
             child_results.append(child_result)
@@ -238,7 +240,7 @@ class HTMLElement(Element):
             prev_child._unmount(prev_child_state, prev_child_result)
 
         if 'ref' in self._props:
-            _ctx.static = False
+            ctx.static = False
 
         result = (self._tag, self._props, child_prev_indexes, *child_results)
         return state, result
@@ -296,9 +298,10 @@ class Component(Element):
         return (None, Literal(None), None), None
 
     def _render(self, prev_state, prev_result):
+        ctx = CONTEXT.get()
         refs, prev_elem, prev_elem_state = prev_state
 
-        _ctx.refs = [] if refs is None else iter(refs)
+        ctx.refs = [] if refs is None else iter(refs)
         try:
             props = self._props
             if self._children:
@@ -306,24 +309,24 @@ class Component(Element):
             elem = self._clean_elem(self._func(**props))
 
             if refs is None:
-                refs = tuple(_ctx.refs)
+                refs = tuple(ctx.refs)
             else:
                 try:
-                    next(_ctx.refs)
+                    next(ctx.refs)
                 except StopIteration:
                     pass
                 else:
                     raise ValueError('less refs used than previous render')
         finally:
-            del _ctx.refs
+            del ctx.refs
 
-        _ctx.path.append('render')
+        ctx.path.append('render')
         try:
             elem_state, result = elem._rerender(
                 prev_elem, prev_elem_state, prev_result,
             )
         finally:
-            _ctx.path.pop()
+            ctx.path.pop()
 
         return (refs, elem, elem_state), result
 

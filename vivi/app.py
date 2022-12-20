@@ -14,7 +14,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import Response, FileResponse
 from starlette.websockets import WebSocketDisconnect
 
-from .hooks import _ctx, _url_provider, _shared_pubsub
+from .hooks import CONTEXT, _url_provider, _shared_pubsub
 from .html import SafeText, html_parts, html_diff, html_refs
 from .paths import Paths
 from .node import Node
@@ -137,35 +137,25 @@ def mount(
 
         elem_with_url = _url_provider(elem, value=url)
 
-        _ctx.rerender_path = rerender_path
-        _ctx.push_url = push_url
-        _ctx.replace_url = replace_url
-        _ctx.set_cookie = set_cookie
-        _ctx.unset_cookie = unset_cookie
-        _ctx.contexts = contexts
-        _ctx.cookies = cookies
-        _ctx.cookie_paths = cookie_paths
-        _ctx.rerender_paths = paths
-        _ctx.path = []
-        _ctx.files = files
-        _ctx.get_url = get_url
-        _ctx.eager = eager
+        token = CONTEXT.set(SimpleNamespace(
+            rerender_path=rerender_path,
+            push_url=push_url,
+            replace_url=replace_url,
+            set_cookie=set_cookie,
+            unset_cookie=unset_cookie,
+            contexts=contexts,
+            cookies=cookies,
+            cookie_paths=cookie_paths,
+            rerender_paths=paths,
+            path=[],
+            files=files,
+            get_url=get_url,
+            eager=eager,
+        ))
         try:
             state, result = elem_with_url._render(state, result)
         finally:
-            del _ctx.rerender_path
-            del _ctx.push_url
-            del _ctx.replace_url
-            del _ctx.set_cookie
-            del _ctx.unset_cookie
-            del _ctx.contexts
-            del _ctx.cookies
-            del _ctx.cookie_paths
-            del _ctx.rerender_paths
-            del _ctx.path
-            del _ctx.files
-            del _ctx.get_url
-            del _ctx.eager
+            CONTEXT.reset(token)
 
         return result
 

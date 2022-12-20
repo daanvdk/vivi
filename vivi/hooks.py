@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,26 +10,30 @@ from .context import create_context
 from .shared import create_shared
 
 
-_ctx = SimpleNamespace()
+CONTEXT = ContextVar('context')
 
 
 def use_ref(**kwargs):
-    if isinstance(_ctx.refs, list):
+    ctx = CONTEXT.get()
+
+    if isinstance(ctx.refs, list):
         ref = SimpleNamespace(**kwargs)
-        _ctx.refs.append(ref)
+        ctx.refs.append(ref)
     else:
         try:
-            ref = next(_ctx.refs)
+            ref = next(ctx.refs)
         except StopIteration:
             raise ValueError('more refs used than previous render') from None
     return ref
 
 
 def use_state(initial_value=None):
+    ctx = CONTEXT.get()
+
     ref = use_ref()
-    _ctx.static = False
-    ref.path = tuple(_ctx.path)
-    ref.rerender_path = _ctx.rerender_path
+    ctx.static = False
+    ref.path = tuple(ctx.path)
+    ref.rerender_path = ctx.rerender_path
 
     if not hasattr(ref, 'value'):
         if callable(initial_value):
@@ -88,29 +93,32 @@ _url_provider, use_url = create_context()
 
 
 def use_push_url():
-    _ctx.static = False
-    return _ctx.push_url
+    ctx = CONTEXT.get()
+    ctx.static = False
+    return ctx.push_url
 
 
 def use_replace_url():
-    _ctx.static = False
-    return _ctx.replace_url
+    ctx = CONTEXT.get()
+    ctx.static = False
+    return ctx.replace_url
 
 
 def use_future(fut, loading=object(), *, eager=False):
-    ref = use_ref(fut=None, eager=None)
+    ctx = CONTEXT.get()
 
-    ref.path = tuple(_ctx.path)
-    ref.rerender_path = _ctx.rerender_path
+    ref = use_ref(fut=None, eager=None)
+    ref.path = tuple(ctx.path)
+    ref.rerender_path = ctx.rerender_path
 
     if hasattr(ref, '_vivi_cleanup'):
         ref._vivi_cleanup()
         del ref._vivi_cleanup
 
     if fut is not None and not fut.done():
-        _ctx.static = False
-        if eager and _ctx.eager is not None:
-            ref.eager = _ctx.eager
+        ctx.static = False
+        if eager and ctx.eager is not None:
+            ref.eager = ctx.eager
             ref.eager.add(fut)
 
             def cleanup():
@@ -140,6 +148,7 @@ NO_DEFAULT = object()
 
 
 def use_cookie(key, default=NO_DEFAULT):
+    ctx = CONTEXT.get()
     ref = use_ref()
 
     if not hasattr(ref, 'key') or ref.key != key:
@@ -148,8 +157,8 @@ def use_cookie(key, default=NO_DEFAULT):
         if hasattr(ref, '_vivi_cleanup'):
             ref._vivi_cleanup()
 
-        cookie_paths = _ctx.cookie_paths
-        path = tuple(_ctx.path)
+        cookie_paths = ctx.cookie_paths
+        path = tuple(ctx.path)
 
         cookie_paths.setdefault(key, set()).add(path)
 
@@ -162,7 +171,7 @@ def use_cookie(key, default=NO_DEFAULT):
         ref._vivi_cleanup = cleanup
 
     try:
-        return _ctx.cookies[key]
+        return ctx.cookies[key]
     except KeyError:
         if default is NO_DEFAULT:
             raise
@@ -171,16 +180,19 @@ def use_cookie(key, default=NO_DEFAULT):
 
 
 def use_set_cookie():
-    _ctx.static = False
-    return _ctx.set_cookie
+    ctx = CONTEXT.get()
+    ctx.static = False
+    return ctx.set_cookie
 
 
 def use_unset_cookie():
-    _ctx.static = False
-    return _ctx.unset_cookie
+    ctx = CONTEXT.get()
+    ctx.static = False
+    return ctx.unset_cookie
 
 
 def use_file(path):
+    ctx = CONTEXT.get()
     ref = use_ref()
 
     try:
@@ -199,7 +211,7 @@ def use_file(path):
             if not isinstance(path, Path) or not path.is_file():
                 raise ValueError('path is not a file')
 
-            files = _ctx.files
+            files = ctx.files
             file_id = uuid4()
             files[file_id] = path
 
@@ -207,18 +219,20 @@ def use_file(path):
                 del files[file_id]
 
             ref.path = path
-            ref.url = _ctx.get_url('file', file_id=file_id)
+            ref.url = ctx.get_url('file', file_id=file_id)
             ref._vivi_cleanup = cleanup
 
     return getattr(ref, 'url', None)
 
 
 def use_static(path):
-    return _ctx.get_url('static', path=path)
+    ctx = CONTEXT.get()
+    return ctx.get_url('static', path=path)
 
 
 def use_path(path):
-    return _ctx.get_url('http', path=path)
+    ctx = CONTEXT.get()
+    return ctx.get_url('http', path=path)
 
 
 @asynccontextmanager
