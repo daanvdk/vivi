@@ -45,6 +45,7 @@ class TestSession(Assertion):
         self._run_fut = loop.create_task(self._run())
         self._mounted_fut = loop.create_future()
         self._root = None
+        self._shared_values = {}
         self._forks = []
         self._update()
 
@@ -69,6 +70,7 @@ class TestSession(Assertion):
         del self._run_fut
         del self._mounted_fut
         del self._root
+        del self._shared_values
 
     def fork(self):
         while self._root is not None:
@@ -80,11 +82,12 @@ class TestSession(Assertion):
             cookies=self._cookies.copy(),
             timeout=self._timeout,
         )
-        session._shared_providers = self._shared_providers
+        session._shared_values = self._shared_values
         session._loop = self._loop
         session._run_fut = self._loop.create_task(session._base_run())
         session._mounted_fut = self._loop.create_future()
         session._root = self
+        session._shared_values = self._shared_values
         session._update()
         self._forks.append(session)
         return session
@@ -101,10 +104,8 @@ class TestSession(Assertion):
 
     async def _run(self):
         async with AsyncExitStack() as stack:
-            self._shared_providers = tuple([
-                await stack.enter_async_context(shared())
-                for shared in self._shared
-            ])
+            for shared in self._shared:
+                await stack.enter_async_context(shared(self._shared_values))
             await self._base_run()
 
     async def _base_run(self):
@@ -116,7 +117,7 @@ class TestSession(Assertion):
         self._result, rerender, unmount = mount(
             self._queue, self._elem,
             self._cookies, cookie_paths,
-            self._url, self._shared_providers,
+            self._url, self._shared_values,
             self._files, self._get_url,
         )
         self._mounted_fut.set_result(None)

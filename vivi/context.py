@@ -42,6 +42,8 @@ def create_context(initial_value=None):
 
         return fragment(*children)
 
+    context_provider._vivi_context_key = key
+
     def use_context():
         ctx = CONTEXT.get()
         initial_value, providers, receivers = get_context()

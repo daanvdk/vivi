@@ -105,7 +105,7 @@ def wrap(result, script=None, prev_head=None):
 def mount(
     queue, elem,
     cookies, cookie_paths,
-    url, shared_providers,
+    url, shared,
     files, get_url,
     eager=None,
 ):
@@ -125,9 +125,6 @@ def mount(
 
     def unset_cookie(key):
         queue.put_nowait(('unset_cookie', key))
-
-    for shared_provider in reversed(shared_providers):
-        elem = shared_provider(elem)
 
     elem_with_url = _url_provider(elem, value=url)
     state, result = elem_with_url._init()
@@ -149,6 +146,7 @@ def mount(
             rerender_paths=paths,
             path=[],
             files=files,
+            shared=shared,
             get_url=get_url,
             eager=eager,
         ))
@@ -247,7 +245,7 @@ class Vivi:
         result, rerender, unmount = mount(
             queue, self._elem,
             cookies, cookie_paths,
-            url, self._shared_providers,
+            url, self._shared_values,
             files, get_url,
             eager=eager,
         )
@@ -449,9 +447,13 @@ class Vivi:
 
     @asynccontextmanager
     async def _lifespan(self, app):
-        async with AsyncExitStack() as stack:
-            self._shared_providers = tuple([
-                await stack.enter_async_context(shared())
-                for shared in self._shared
-            ])
-            yield
+        self._shared_values = {}
+        try:
+            async with AsyncExitStack() as stack:
+                for shared in self._shared:
+                    await stack.enter_async_context(
+                        shared(self._shared_values)
+                    )
+                yield
+        finally:
+            del self._shared_values
