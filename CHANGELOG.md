@@ -29,12 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local to the base url where the app is running.
 - Added a new hook `vivi.hooks.use_static` that you can use to resolve an url
   to a static file.
-- Added two new hooks `vivi.hooks.use_publish` and `vivi.hooks.use_subscribe`
-  that together implement a pubsub system. `use_publish` returns a function
-  that given a channel and a message publishes that message to all subscribers.
-  `use_subscribe` is a decorator that given a channel runs the decorated
-  function for every published message on that channel. Channels can be any
-  hashable key.
+- Added three new hooks `vivi.hooks.use_publish`, `vivi.hooks.use_subscribe`
+  and `vivi.hooks.use_messages` that together implement a pubsub system.
+  `use_publish` returns a function that given a channel and a message
+  publishes that message to all subscribers. `use_subscribe` is a decorator
+  that given a channel runs the decorated function for every published message
+  on that channel. `use_messages` given a channel returns an async iterator
+  over messages on that channel. Channels can be any hashable key.
 
 ### Changed
 - If you call an element positional arguments that are a dict are now
@@ -45,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `file` or `files` (based on if they have the `multiple` prop) instead of the
   `value` attribute. These files then again have 2-attributes, `content_type`
   and `content`.
+- The hooks returned by `vivi.shared.create_shared` can now also be used from
+  within the context managers for shared resources that come later in the
+  shared stack. This includes `vivi.hooks.use_publish` and
+  `vivi.hooks.use_messages`.
 
 ### Fixed
 - Fixed unmount crash on websocket close.

@@ -68,7 +68,7 @@ def use_callback(*key):
     return decorator
 
 
-def use_effect(*key):
+def use_effect(*key, immediate=False):
     def decorator(callback):
         ref = use_ref()
         if not hasattr(ref, 'key') or ref.key != key:
@@ -80,11 +80,19 @@ def use_effect(*key):
                 ref._vivi_cleanup()
                 del ref._vivi_cleanup
 
-            @loop.call_soon
             def wrapped_callback():
                 cleanup = callback()
                 if callable(cleanup):
-                    ref._vivi_cleanup = lambda: loop.call_soon(cleanup)
+                    if immediate:
+                        ref._vivi_cleanup = cleanup
+                    else:
+                        ref._vivi_cleanup = lambda: loop.call_soon(cleanup)
+
+            if immediate:
+                wrapped_callback()
+            else:
+                loop.call_soon(wrapped_callback)
+
         return callback
     return decorator
 
@@ -279,26 +287,24 @@ def use_publish():
 
 def use_subscribe(channel, *, ignore=False):
     def decorator(callback):
-        ref = use_ref()
         _, subscribe = _use_pubsub()
 
-        subscribed = hasattr(ref, 'channel')
-        if subscribed if ignore else (
-            not subscribed or
-            ref.channel != channel or
-            ref.callback != callback
-        ):
-            if subscribed:
-                ref._vivi_cleanup()
-                del ref._vivi_cleanup
-
+        @use_effect(channel, ignore, subscribe, callback, immediate=True)
+        def subscribe_callback():
             if ignore:
-                del ref.channel
-                del ref.callback
-            else:
-                ref.channel = channel
-                ref.callback = callback
-                ref._vivi_cleanup = subscribe(channel, callback)
+                return
+            return subscribe(channel, callback)
 
         return callback
     return decorator
+
+
+async def use_messages(channel):
+    _, subscribe = _use_pubsub()
+    queue = asyncio.Queue()
+    unsubscribe = subscribe(channel, queue.put_nowait)
+    try:
+        while True:
+            yield await queue.get()
+    finally:
+        unsubscribe()
